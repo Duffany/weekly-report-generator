@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Weekly Report Generator — Marjane Mall</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+
+  <header>
+    <div class="header-inner">
+      <div class="logo">MM</div>
+      <div>
+        <h1>Weekly Report Generator</h1>
+        <p>Rapport hebdomadaire Stock &amp; FFM — Automatisation</p>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ─── STEP 1 : Semaine ─────────────────────────────── -->
+    <section class="card" id="step1">
+      <div class="card-header">
+        <span class="step-badge">1</span>
+        <h2>Configuration de la semaine</h2>
+      </div>
+      <div class="card-body">
+        <div class="row-2">
+          <div class="field">
+            <label for="weekNum">Numéro de semaine</label>
+            <input type="number" id="weekNum" min="1" max="52" placeholder="ex. 10" />
+          </div>
+          <div class="field">
+            <label for="year">Année</label>
+            <input type="number" id="year" value="2026" />
+          </div>
+          <div class="field">
+            <label for="reportDate">Date du rapport</label>
+            <input type="date" id="reportDate" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── STEP 2 : Fichiers d'entrée ──────────────────── -->
+    <section class="card" id="step2">
+      <div class="card-header">
+        <span class="step-badge">2</span>
+        <h2>Fichiers d'entrée (4 exports hebdomadaires)</h2>
+      </div>
+      <div class="card-body">
+        <div class="uploads-grid">
+
+          <div class="upload-zone" id="zone-stock" data-key="stock">
+            <div class="upload-icon">📦</div>
+            <div class="upload-label">Stock</div>
+            <div class="upload-hint">Stock_S[N]_2026.xlsx<br/>~11 000 lignes · zones entrepôt</div>
+            <input type="file" accept=".xlsx,.xls" class="file-input" />
+            <div class="file-name"></div>
+          </div>
+
+          <div class="upload-zone" id="zone-conso" data-key="conso">
+            <div class="upload-icon">📋</div>
+            <div class="upload-label">Conso / Catalogue complet</div>
+            <div class="upload-hint">Conso_[JJMMAAAA].xlsx<br/>~400 000 lignes · marques · N1/N2/N3</div>
+            <input type="file" accept=".xlsx,.xls" class="file-input" />
+            <div class="file-name"></div>
+          </div>
+
+          <div class="upload-zone" id="zone-l3m" data-key="l3m">
+            <div class="upload-icon">📈</div>
+            <div class="upload-label">Report L3M</div>
+            <div class="upload-hint">Report_L3M_S[N]_2026.xlsx<br/>~150 000 lignes · GMV · marge</div>
+            <input type="file" accept=".xlsx,.xls" class="file-input" />
+            <div class="file-name"></div>
+          </div>
+
+          <div class="upload-zone" id="zone-jumia" data-key="jumia">
+            <div class="upload-icon">🏷️</div>
+            <div class="upload-label">IP Jumia</div>
+            <div class="upload-hint">IP_Jumia_S[N]_2026.xlsx<br/>~41 000 lignes · prix concurrents</div>
+            <input type="file" accept=".xlsx,.xls" class="file-input" />
+            <div class="file-name"></div>
+          </div>
+
+        </div>
+
+        <div class="optional-block">
+          <div class="optional-label">Optionnel — Fichier modèle (semaine précédente)</div>
+          <div class="upload-zone upload-zone--small" id="zone-template" data-key="template">
+            <div class="upload-icon">📊</div>
+            <div class="upload-label">Weekly Report template</div>
+            <div class="upload-hint">Weekly Report Stock S[N-1].xlsx — pour conserver la structure</div>
+            <input type="file" accept=".xlsx,.xls" class="file-input" />
+            <div class="file-name"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── STEP 3 : Génération ──────────────────────────── -->
+    <section class="card" id="step3">
+      <div class="card-header">
+        <span class="step-badge">3</span>
+        <h2>Génération du rapport</h2>
+      </div>
+      <div class="card-body">
+
+        <div id="validation-msg" class="msg msg--warn hidden">
+          Veuillez renseigner le numéro de semaine et charger les 4 fichiers d'entrée.
+        </div>
+
+        <button id="btn-process" class="btn btn--primary" disabled>
+          ⚙️ Générer le rapport
+        </button>
+
+        <!-- Progress -->
+        <div id="progress-block" class="hidden">
+          <div class="progress-bar-wrap">
+            <div class="progress-bar" id="progress-bar"></div>
+          </div>
+          <div id="progress-label" class="progress-label">Initialisation…</div>
+        </div>
+
+        <!-- Logs -->
+        <div id="log-block" class="log-block hidden"></div>
+
+        <!-- Result -->
+        <div id="result-block" class="result-block hidden">
+          <div class="result-icon">✅</div>
+          <h3 id="result-title"></h3>
+          <p id="result-summary"></p>
+          <div class="result-actions">
+            <button id="btn-download" class="btn btn--success">⬇️ Télécharger le rapport</button>
+            <button id="btn-reset" class="btn btn--ghost">🔄 Nouveau rapport</button>
+          </div>
+          <div class="warn-pivot">
+            ⚠️ Les tableaux croisés dynamiques (TCD) doivent être actualisés manuellement dans Excel
+            après ouverture du fichier (clic droit → Actualiser tout).
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <p>Marjane Mall · Reporting hebdomadaire automatisé · <span id="footer-year"></span></p>
+  </footer>
+
+  <!-- SheetJS CDN -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+# Data files — never commit to repo
+automate/
+*.xlsx
+*.xls
+*.csv
+*.docx
+
+# Credentials
+credentials.md
+*.env
+.env*
+
+# Python
+__pycache__/
+*.pyc
+*.py
+
+# OS
+.DS_Store
+Thumbs.db
