@@ -261,20 +261,28 @@ async function runProcess() {
     const { headers: cH, rows: consoRows } = sheetToArrays(consoWb);
     log(`Conso: ${consoRows.length.toLocaleString()} lignes`, 'info');
 
-    // From workflow: A=N1, B=N2, C=N3, D=ProductId, I=Shopname, L=OfferPrice, O=Brandlabel
+    // Actual conso columns: Unnamed:0, Label_N1, Label_N2, LABEL_N3, ProductId, ParentID, gtin,
+    //   title, SellerId, shopname, status, BestOfferRank, Price, OriginPrice, SupplyMode, brandlabel...
     const CC = {
-      n1:    colIdx(cH, 'Label_N1','N1','label_n1') !== -1 ? colIdx(cH,'Label_N1','N1','label_n1') : 0,
-      n2:    colIdx(cH, 'Label_N2','N2') !== -1 ? colIdx(cH,'Label_N2','N2') : 1,
-      n3:    colIdx(cH, 'Label_N3','N3') !== -1 ? colIdx(cH,'Label_N3','N3') : 2,
-      pid:   colIdx(cH, 'ProductId','product_id','Id') !== -1 ? colIdx(cH,'ProductId','product_id','Id') : 3,
-      shop:  colIdx(cH, 'Shopname','shop_name','vendeur') !== -1 ? colIdx(cH,'Shopname','shop_name') : 8,
-      price: colIdx(cH, 'OfferPrice','offerprice','prix') !== -1 ? colIdx(cH,'OfferPrice','offerprice','prix') : 11,
-      brand: colIdx(cH, 'Brandlabel','brand','marque') !== -1 ? colIdx(cH,'Brandlabel','brand','marque') : 14,
+      n1:    colIdx(cH, 'Label_N1','N1','label_n1') !== -1 ? colIdx(cH,'Label_N1','N1','label_n1') : 1,
+      n2:    colIdx(cH, 'Label_N2','N2') !== -1 ? colIdx(cH,'Label_N2','N2') : 2,
+      n3:    colIdx(cH, 'LABEL_N3','Label_N3','N3') !== -1 ? colIdx(cH,'LABEL_N3','Label_N3','N3') : 3,
+      pid:   colIdx(cH, 'ProductId','product_id','Id') !== -1 ? colIdx(cH,'ProductId','product_id','Id') : 4,
+      shop:  colIdx(cH, 'shopname','Shopname','shop_name','vendeur') !== -1 ? colIdx(cH,'shopname','Shopname','shop_name','vendeur') : 9,
+      rank:  colIdx(cH, 'BestOfferRank','bestofferrank','rank') !== -1 ? colIdx(cH,'BestOfferRank','bestofferrank','rank') : 11,
+      price: colIdx(cH, 'Price','OfferPrice','offerprice','prix') !== -1 ? colIdx(cH,'Price','OfferPrice','offerprice','prix') : 12,
+      brand: colIdx(cH, 'brandlabel','Brandlabel','brand','marque') !== -1 ? colIdx(cH,'brandlabel','Brandlabel','brand','marque') : 15,
     };
+    // Build consoMap: for each ProductId, prefer the BestOfferRank=1 row (the actual BO seller)
     const consoMap = new Map();
     for (const row of consoRows) {
       const k = String(row[CC.pid]||'').trim();
-      if (k && !consoMap.has(k)) consoMap.set(k, row);
+      if (!k) continue;
+      const rank = parseNum(row[CC.rank]) || 9999;
+      if (!consoMap.has(k) || rank < consoMap.get(k)._rank) {
+        const entry = row.slice(); entry._rank = rank;
+        consoMap.set(k, entry);
+      }
     }
     log(`Conso map: ${consoMap.size.toLocaleString()} entrées`);
     await yield_();
@@ -287,32 +295,28 @@ async function runProcess() {
     const { headers: lH, rows: l3mRows } = sheetToArrays(l3mWb);
     log(`L3M: ${l3mRows.length.toLocaleString()} lignes`, 'info');
 
-    // Positional from workflow formulas (A=0, E=4, F=5, G=6, Q=16, W=22, Z=25)
+    // Actual L3M columns: SKU(0), Title(1), Seller BO(2), Seller Max IS(3), Brand(4),
+    //   N1(5)...PV(10), IS(20), GMV(27), marge l3M(56), cout unitaire(57)
     const LC = {
-      pid:   colIdx(lH,'ProductId','SKU','sku') !== -1 ? colIdx(lH,'ProductId','SKU','sku') : 0,
-      pv:    colIdx(lH,'Views','PV','page_views') !== -1 ? colIdx(lH,'Views','PV') : 4,
-      is_:   colIdx(lH,'Items','IS','items_sold') !== -1 ? colIdx(lH,'Items','IS') : 5,
-      gmv:   colIdx(lH,'CA ALL','GMV','Revenue','CA') !== -1 ? colIdx(lH,'CA ALL','GMV','Revenue','CA') : 6,
-      qty:   colIdx(lH,'Quantite','Quantity','qty') !== -1 ? colIdx(lH,'Quantite','Quantity') : 16,
-      ca:    22,  // Column W — CA total for Marge% calc
-      marge: 25,  // Column Z — Marge amount
+      pid:   colIdx(lH,'SKU','ProductId','sku') !== -1 ? colIdx(lH,'SKU','ProductId','sku') : 0,
+      pv:    colIdx(lH,'PV','Views','page_views') !== -1 ? colIdx(lH,'PV','Views','page_views') : 10,
+      is_:   colIdx(lH,'IS','is_l3m') !== -1 ? colIdx(lH,'IS','is_l3m') : 20,
+      gmv:   colIdx(lH,'GMV','gmv') !== -1 ? colIdx(lH,'GMV','gmv') : 27,
+      marge: colIdx(lH,'marge l3M','Marge L3M','marge_l3m') !== -1 ? colIdx(lH,'marge l3M','Marge L3M','marge_l3m') : 56,
+      coutU: colIdx(lH,'cout unitaire','Cout unitaire','cout_unitaire') !== -1 ? colIdx(lH,'cout unitaire','Cout unitaire','cout_unitaire') : 57,
     };
     const l3mMap = new Map();
     for (const row of l3mRows) {
       const k = String(row[LC.pid]||'').trim();
       if (!k) continue;
       const pv=parseNum(row[LC.pv]), is_=parseNum(row[LC.is_]), gmv=parseNum(row[LC.gmv]);
-      const qty=parseNum(row[LC.qty]), ca=parseNum(row[LC.ca]), mAmt=parseNum(row[LC.marge]);
+      const marge=parseNum(row[LC.marge]), coutU=parseNum(row[LC.coutU]);
       if (l3mMap.has(k)) {
         const e=l3mMap.get(k);
-        e.pv+=pv; e.is+=is_; e.gmv+=gmv; e.qty+=qty; e.ca+=ca; e.mAmt+=mAmt;
+        e.pv+=pv; e.is+=is_; e.gmv+=gmv;
       } else {
-        l3mMap.set(k, {pv, is:is_, gmv, qty, ca, mAmt});
+        l3mMap.set(k, {pv, is:is_, gmv, marge, coutU});
       }
-    }
-    for (const [,v] of l3mMap) {
-      v.margePct     = v.ca  > 0 ? roundN(v.mAmt/v.ca*100, 2)        : 0;
-      v.coutUnitaire = v.qty > 0 ? roundN((v.ca-v.mAmt)/v.qty, 2)    : 0;
     }
     log(`L3M map: ${l3mMap.size.toLocaleString()} produits`);
     await yield_();
@@ -376,11 +380,11 @@ async function runProcess() {
       // L3M
       const lDat = l3mMap.get(pid);
       if (lDat) matchL++;
-      const pv        = lDat ? lDat.pv        : 0;
-      const is_       = lDat ? lDat.is        : 0;
-      const gmv       = lDat ? roundN(lDat.gmv,2) : 0;
-      const margePct  = lDat ? lDat.margePct  : 0;
-      const coutU     = lDat ? lDat.coutUnitaire : 0;
+      const pv        = lDat ? lDat.pv           : 0;
+      const is_       = lDat ? lDat.is           : 0;
+      const gmv       = lDat ? roundN(lDat.gmv,2): 0;
+      const margePct  = lDat ? lDat.marge        : 0;  // already a decimal (e.g. 0.0922)
+      const coutU     = lDat ? lDat.coutU        : 0;
 
       // Jumia
       const jRow  = jumiaMap.get(pid);
@@ -681,8 +685,8 @@ function buildReportRetail(ws, retailRows) {
     eRow.getCell(30).value = { formula: `IFERROR((AC${r}/1.2-AA${r})/(AC${r}/1.2),"")` };
     // AG (33): Check Prix
     eRow.getCell(33).value = { formula: `IFERROR(IF(AF${r}="","",IF(AF${r}<AC${r},"prix \u00e0 revoir",IF(AC${r}>AB${r},"Prix Sup\u00e9rieur \u00e0 ASP",""))),"")` };
-    // AJ (36): Check BO
-    eRow.getCell(36).value = { formula: `IF(F${r}="(vide)","",IF(AND(C${r}="Retail",AI${r}<>"Marjanemall",AI${r}<>""),"Retail Non BO",""))` };
+    // AJ (36): Check BO — Non-BO when vendeur is anything other than MARJANEMALL (includes empty = not in conso)
+    eRow.getCell(36).value = { formula: `IF(AND(C${r}="Retail",UPPER(AI${r})<>"MARJANEMALL"),"Retail Non BO","")` };
     // AK (37): Animation commerciale
     eRow.getCell(37).value = { formula: `IF(AND(N${r}>180,R${r}>120),"Baisse de prix permanente ou retour fournisseur",IF(AND(N${r}>60,R${r}>120),"Baisse de prix permanente",IF(AND(R${r}>60,V${r}>0.05),"Vente Flash","")))` };
   });
