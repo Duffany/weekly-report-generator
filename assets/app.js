@@ -184,6 +184,24 @@ function trancheAge(days) {
   return '>180jrs';
 }
 
+// ── Normalize a GTIN/barcode to a canonical string ────────────
+// Handles: integers, floats (1.234E+12), strings with decimals, leading zeros
+function normalizeGtin(raw) {
+  if (raw === null || raw === undefined || raw === '') return '';
+  // If it's already a number (from SheetJS numeric cell), convert directly
+  if (typeof raw === 'number') {
+    // Use Math.round to avoid floating-point artifacts (e.g. 9900006446318.001)
+    return String(Math.round(raw));
+  }
+  const s = String(raw).trim();
+  // Handle scientific notation strings like "9.9E+12" or "9.90000644631800E+12"
+  if (/^[0-9.]+[eE][+\-]?[0-9]+$/.test(s)) {
+    return String(Math.round(parseFloat(s)));
+  }
+  // Remove trailing .0 or .000
+  return s.replace(/\.0+$/, '');
+}
+
 // ── Build Repartition SKU map from template ───────────────────
 async function buildRepSkuMap(templateFile) {
   if (!templateFile) return new Map();
@@ -194,13 +212,10 @@ async function buildRepSkuMap(templateFile) {
     const { rows } = sheetToArrays(wb, 'Repartition sku 1P');
     const map = new Map();
     for (const row of rows) {
-      const gtin = String(row[0] || '').trim();
+      const gtin = normalizeGtin(row[0]);
       const type = String(row[1] || '').trim();
       if (gtin && type) {
         map.set(gtin, type);
-        // Also index by numeric value (GTIN lookup uses VALUE() in formula)
-        const n = parseInt(gtin, 10);
-        if (!isNaN(n)) map.set(String(n), type);
       }
     }
     log(`Repartition SKU map: ${map.size} entrées (B1/B2 sourcing)`, 'info');
@@ -360,8 +375,9 @@ async function runProcess() {
       const valeur   = parseNum(sRow[SC.val]);
       const title    = String(sRow[SC.title]||'');
 
-      // Sourcing type from Repartition sku 1P
-      const srcType = repSkuMap.get(gtin) || repSkuMap.get(pid) || '';
+      // Sourcing type from Repartition sku 1P (normalize GTIN to avoid float/scientific notation mismatches)
+      const gtinNorm = normalizeGtin(sRow[SC.gtin]);
+      const srcType = repSkuMap.get(gtinNorm) || repSkuMap.get(pid) || '';
       if (srcType) matchT++;
 
       // Owner
