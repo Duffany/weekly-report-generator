@@ -408,8 +408,9 @@ async function runProcess() {
       const prixJ = jRow ? parseNum(jRow[JC.px])        : 0;
       const lienJ = jRow ? String(jRow[JC.lien]||'')    : '';
 
-      // Category
-      const catRevue = mapCategory(n1, rawCat);
+      // Category — use Stock nom_categorie first (proven correct by Python),
+      // conso n1 only as fallback (can mismatch if product has different Label_N1 in marketplace)
+      const catRevue = mapCategory(rawCat, n1);
 
       retailRows.push({
         catRevue, rawCat, typeV, srcType, owner,
