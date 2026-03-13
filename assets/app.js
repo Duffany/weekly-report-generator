@@ -1,39 +1,39 @@
 /* ============================================================
    Weekly Report Generator — Marjane Mall
-   Full rewrite: exact Vue globale layout + 37-col Report Retail
+   SheetJS (reading) + ExcelJS (formatted output + live formulas)
    ============================================================ */
 
 // ── Category mapping (from hidden "Categorie revue" sheet) ───
 const CATEGORIE_MAP = {
-  'HYGIENE - BEAUTE - PARFUM':           'Beaute',
-  'MATERIEL MEDICAL':                    'Beaute',
-  'PARAPHARMACIE':                       'Beaute',
-  'JEUX - JOUETS':                       'Bebe - Jouet',
-  'PUERICULTURE':                        'Bebe - Jouet',
-  'ANIMALERIE':                          'Bricolage Jardin Animalerie',
-  'BRICOLAGE - OUTILLAGE':               'Bricolage Jardin Animalerie',
-  'DROGUERIE':                           'Bricolage Jardin Animalerie',
-  'JARDIN - PISCINE':                    'Bricolage Jardin Animalerie',
-  'ELECTROMENAGER':                      'PEM',
-  'INFORMATIQUE':                        'Informatique & gaming',
-  'JEUX VIDEO':                          'Informatique & gaming',
-  'ART DE LA TABLE':                     'Maison',
-  'DECO - LINGE - LUMINAIRE':            'Maison',
-  'DECO - LINGE':                        'Maison',
-  'LITERIE':                             'Maison',
-  'MEUBLE':                              'Maison',
-  'BAGAGERIE':                           'Mode',
-  'BIJOUX':                              'Mode',
-  'CHAUSSURES':                          'Mode',
-  'VETEMENTS':                           'Mode',
-  'SPORT':                               'Sport',
-  'TELEPHONIE - GPS':                    'Tel',
-  'INSTRUMENTS DE MUSIQUE':              'TV Son',
-  'PHOTO':                               'TV Son',
-  'SONO':                                'TV Son',
-  'TV-VIDEO-SON':                        'TV Son',
-  'DVD':                                 'TV Son',
-  'MUSIQUE':                             'TV Son',
+  'HYGIENE - BEAUTE - PARFUM':    'Beaute',
+  'MATERIEL MEDICAL':             'Beaute',
+  'PARAPHARMACIE':                'Beaute',
+  'JEUX - JOUETS':                'Bebe - Jouet',
+  'PUERICULTURE':                 'Bebe - Jouet',
+  'ANIMALERIE':                   'Bricolage Jardin Animalerie',
+  'BRICOLAGE - OUTILLAGE':        'Bricolage Jardin Animalerie',
+  'DROGUERIE':                    'Bricolage Jardin Animalerie',
+  'JARDIN - PISCINE':             'Bricolage Jardin Animalerie',
+  'ELECTROMENAGER':               'PEM',
+  'INFORMATIQUE':                 'Informatique & gaming',
+  'JEUX VIDEO':                   'Informatique & gaming',
+  'ART DE LA TABLE':              'Maison',
+  'DECO - LINGE - LUMINAIRE':     'Maison',
+  'DECO - LINGE':                 'Maison',
+  'LITERIE':                      'Maison',
+  'MEUBLE':                       'Maison',
+  'BAGAGERIE':                    'Mode',
+  'BIJOUX':                       'Mode',
+  'CHAUSSURES':                   'Mode',
+  'VETEMENTS':                    'Mode',
+  'SPORT':                        'Sport',
+  'TELEPHONIE - GPS':             'Tel',
+  'INSTRUMENTS DE MUSIQUE':       'TV Son',
+  'PHOTO':                        'TV Son',
+  'SONO':                         'TV Son',
+  'TV-VIDEO-SON':                 'TV Son',
+  'DVD':                          'TV Son',
+  'MUSIQUE':                      'TV Son',
 };
 
 const CATEGORIES_ORDER = [
@@ -41,11 +41,41 @@ const CATEGORIES_ORDER = [
   'Tel', 'Sport', 'Autres', 'TV Son', 'Bebe - Jouet', 'Informatique & gaming'
 ];
 
-// ── State ────────────────────────────────────────────────────
-const files = { stock: null, conso: null, l3m: null, jumia: null, template: null };
-let outputWorkbook = null;
+// Vue globale: 6 sections with filter criteria applied to Report Retail sheet
+// columns: C=Type de Stock, A=Catégorie Revue, D=Type sourcing, M=Stock,
+//          N=Age stock Moyen, R=Couverture (Jrs), T=PV L3M, AG=Check Prix, AJ=Check BO
+const VG_SECTIONS = [
+  { name: 'Scope total Retail',                      extra: '' },
+  { name: 'Produits Non BO',                         extra: `,'Report Retail'!$AJ:$AJ,"Retail Non BO"` },
+  { name: 'Produits KO Prix Jumia',                  extra: `,'Report Retail'!$AG:$AG,"prix \u00e0 revoir"` },
+  { name: 'Age stock >180 jours',                    extra: `,'Report Retail'!$N:$N,">"&180` },
+  { name: 'Couverture >120 jours et Age > 60 jours', extra: `,'Report Retail'!$R:$R,">"&120,'Report Retail'!$N:$N,">"&60` },
+  { name: 'Low views (PV L3M <200)',                 extra: `,'Report Retail'!$T:$T,"<"&200` },
+];
 
-// ── DOM ready ────────────────────────────────────────────────
+// ── Styles ────────────────────────────────────────────────────
+const S = {
+  hFill:  { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000000' } },
+  hFont:  { bold: true, color: { argb: 'FFFFFFFF' }, size: 11, name: 'Calibri' },
+  hAlign: { horizontal: 'center', vertical: 'middle', wrapText: true },
+  hBorderRow1: { top:{style:'medium'}, bottom:{style:'thin'},  left:{style:'medium'}, right:{style:'medium'} },
+  hBorderRow2: { top:{style:'thin'},   bottom:{style:'thin'},  left:{style:'medium'}, right:{style:'medium'} },
+  hBorderRow3: { top:{style:'thin'},   bottom:{style:'medium'},left:{style:'medium'}, right:{style:'medium'} },
+  dAlign: { horizontal: 'center', vertical: 'middle' },
+  dBorder:{ top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} },
+  yFill:  { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } },
+  numFmt: { numFmt: '#,##0' },
+};
+
+// Yellow columns in Report Retail (0-indexed col positions: I=8,J=9,K=10,L=11,T=19,X=23,Y=24,Z=25,AA=26,AC=28,AF=31,AH=33,AI=34)
+const YELLOW_COLS = new Set([8, 9, 10, 11, 19, 23, 24, 25, 26, 28, 31, 33, 34]);
+
+// ── State ─────────────────────────────────────────────────────
+const files = { stock: null, conso: null, l3m: null, jumia: null, template: null };
+let outputBlob = null;
+let outputFilename = '';
+
+// ── DOM ready ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('footer-year').textContent = new Date().getFullYear();
   document.getElementById('reportDate').valueAsDate = new Date();
@@ -55,7 +85,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-reset').addEventListener('click', resetAll);
 });
 
-// ── Upload zones ─────────────────────────────────────────────
 function setupUploadZones() {
   document.querySelectorAll('.upload-zone').forEach(zone => {
     const key   = zone.dataset.key;
@@ -82,7 +111,7 @@ function checkReady() {
 ['weekNum', 'year', 'reportDate'].forEach(id =>
   document.getElementById(id).addEventListener('input', checkReady));
 
-// ── Logging / progress ────────────────────────────────────────
+// ── Logging / progress ─────────────────────────────────────────
 function log(msg, type = '') {
   const block = document.getElementById('log-block');
   block.classList.remove('hidden');
@@ -98,7 +127,7 @@ function setProgress(pct, label) {
 }
 const yield_ = () => new Promise(r => setTimeout(r, 0));
 
-// ── Parse Excel → raw arrays (header row + data rows) ────────
+// ── SheetJS helpers ───────────────────────────────────────────
 function readWorkbook(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -110,18 +139,13 @@ function readWorkbook(file) {
     reader.readAsArrayBuffer(file);
   });
 }
-
-// Returns { headers:[], rows:[[]] } — positional, safe for large files
 function sheetToArrays(wb, sheetName) {
   const name = sheetName || wb.SheetNames[0];
   const ws   = wb.Sheets[name];
   if (!ws) throw new Error(`Feuille "${name}" introuvable.`);
-  const all     = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-  const headers = all[0] || [];
-  return { headers, rows: all.slice(1) };
+  const all = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  return { headers: all[0] || [], rows: all.slice(1) };
 }
-
-// Find column index by name (case-insensitive, partial match fallback)
 function colIdx(headers, ...candidates) {
   const h = headers.map(x => String(x).trim().toLowerCase());
   for (const c of candidates) {
@@ -135,22 +159,16 @@ function colIdx(headers, ...candidates) {
   return -1;
 }
 
-// ── Helpers ───────────────────────────────────────────────────
-function parseNum(v) {
-  if (v === '' || v == null) return 0;
-  const n = parseFloat(String(v).replace(',', '.').replace(/\s/g, ''));
-  return isNaN(n) ? 0 : n;
-}
-function roundN(n, d) { const f = Math.pow(10, d); return Math.round(n * f) / f; }
-function pct(a, b)    { return b ? Math.round(a/b*100) + '%' : '0%'; }
+// ── Data helpers ──────────────────────────────────────────────
+function parseNum(v)       { if (v===''||v==null) return 0; const n=parseFloat(String(v).replace(',','.').replace(/\s/g,'')); return isNaN(n)?0:n; }
+function roundN(n, d)      { const f=Math.pow(10,d); return Math.round(n*f)/f; }
+function pct(a, b)         { return b ? Math.round(a/b*100)+'%' : '0%'; }
 
 function mapCategory(n1Raw, rawCat) {
-  // Try N1 from Conso first, then raw stock category
   for (const src of [n1Raw, rawCat]) {
     if (!src) continue;
     const up = String(src).toUpperCase().trim();
     if (CATEGORIE_MAP[up]) return CATEGORIE_MAP[up];
-    // Partial match
     for (const [key, val] of Object.entries(CATEGORIE_MAP)) {
       if (up.includes(key) || key.includes(up)) return val;
     }
@@ -165,35 +183,35 @@ function trancheAge(days) {
   if (d <= 180) return '120-180jrs';
   return '>180jrs';
 }
-function trancheCoverage(days) { return trancheAge(days); } // same thresholds
 
-function tranchePV(pv) {
-  const v = parseNum(pv);
-  if (v < 50)   return '<50';
-  if (v < 200)  return '50-200';
-  if (v < 500)  return '200-500';
-  if (v < 1000) return '500-1000';
-  return '≥1000';
-}
-function trancheCR(cr) {
-  const v = parseNum(cr);
-  if (v <= 0)    return '';
-  if (v < 0.01)  return '<1%';
-  if (v < 0.03)  return '1-3%';
-  if (v < 0.10)  return '3-10%';
-  return '≥10%';
+// ── Build Repartition SKU map from template ───────────────────
+async function buildRepSkuMap(templateFile) {
+  if (!templateFile) return new Map();
+  try {
+    const wb  = await readWorkbook(templateFile);
+    const ws  = wb.Sheets['Repartition sku 1P'];
+    if (!ws) { log('Repartition sku 1P sheet not found in template', 'warn'); return new Map(); }
+    const { rows } = sheetToArrays(wb, 'Repartition sku 1P');
+    const map = new Map();
+    for (const row of rows) {
+      const gtin = String(row[0] || '').trim();
+      const type = String(row[1] || '').trim();
+      if (gtin && type) {
+        map.set(gtin, type);
+        // Also index by numeric value (GTIN lookup uses VALUE() in formula)
+        const n = parseInt(gtin, 10);
+        if (!isNaN(n)) map.set(String(n), type);
+      }
+    }
+    log(`Repartition SKU map: ${map.size} entrées (B1/B2 sourcing)`, 'info');
+    return map;
+  } catch(e) {
+    log('Erreur lecture template: ' + e.message, 'warn');
+    return new Map();
+  }
 }
 
-// Detect B1 or B2 from stock row zone/empl columns
-function detectZone(zoneStr, emplStr) {
-  const z = String(zoneStr || '').toUpperCase();
-  const e = String(emplStr || '').toUpperCase();
-  if (z.includes('B2') || e.includes('B2')) return 'B2';
-  if (z.includes('B1') || e.includes('B1')) return 'B1';
-  return 'B1'; // default
-}
-
-// ── MAIN PROCESS ─────────────────────────────────────────────
+// ── MAIN PROCESS ──────────────────────────────────────────────
 async function runProcess() {
   const btn = document.getElementById('btn-process');
   btn.disabled = true;
@@ -205,296 +223,203 @@ async function runProcess() {
 
   const weekNum = document.getElementById('weekNum').value;
   const year    = document.getElementById('year').value;
+  outputFilename = `Weekly_Report_Stock_S${weekNum}_${year}.xlsx`;
 
   try {
-    // ── 1. Stock ────────────────────────────────────────────
-    setProgress(5, 'Lecture Stock…');
+    // ── 1. Template → Repartition SKU ─────────────────────────
+    setProgress(3, 'Lecture du fichier modèle (B1/B2)…');
+    await yield_();
+    const repSkuMap = await buildRepSkuMap(files.template);
+    const hasRepSku = repSkuMap.size > 0;
+    if (!hasRepSku) log('Sans fichier modèle: B1/B2 indisponibles, seuls les totaux seront calculés.', 'warn');
+
+    // ── 2. Stock ───────────────────────────────────────────────
+    setProgress(8, 'Lecture Stock…');
     log(`Stock: ${files.stock.name}`);
     await yield_();
     const stockWb = await readWorkbook(files.stock);
     const { headers: sH, rows: stockRows } = sheetToArrays(stockWb);
-    log(`Stock: ${stockRows.length.toLocaleString()} lignes, ${sH.length} colonnes`, 'info');
+    log(`Stock: ${stockRows.length.toLocaleString()} lignes`, 'info');
 
-    // Stock column indices
-    const S = {
-      cat:      colIdx(sH, 'nom_categorie', 'nom_cat', 'categorie'),
-      pid:      colIdx(sH, 'ProductId', 'product_id', 'SKU', 'Id'),
-      gtin:     colIdx(sH, 'gtin', 'GTIN', 'ean'),
-      statut:   colIdx(sH, 'statut', 'status'),
-      seller:   colIdx(sH, 'seller', 'vendeur'),
-      typeV:    colIdx(sH, 'type vendeur', 'type_vendeur', 'TypeVendeur'),
-      sellerId: colIdx(sH, 'sellerid', 'seller_id'),
-      stock:    colIdx(sH, 'stock_dispo', 'stock', 'Stock'),
-      title:    colIdx(sH, 'title', 'titre', 'nom_du_produit'),
-      dateRec:  colIdx(sH, 'date_recep', 'date_reception'),
-      age:      colIdx(sH, 'age_stock', 'age'),
-      valeur:   colIdx(sH, 'Valeur', 'valeur', 'value'),
-      qty:      colIdx(sH, 'Quantite', 'quantite', 'qty'),
-      tranche:  colIdx(sH, 'tranche_age', 'tranche'),
-      empl:     colIdx(sH, 'Type Empl', 'type_empl'),
-      zone:     colIdx(sH, 'Zone Stockage', 'zone_stockage', 'zone'),
+    const SC = {
+      cat:   colIdx(sH, 'nom_categorie', 'categorie') !== -1 ? colIdx(sH, 'nom_categorie', 'categorie') : 0,
+      pid:   colIdx(sH, 'ProductId', 'product_id', 'SKU') !== -1 ? colIdx(sH, 'ProductId', 'product_id', 'SKU') : 1,
+      gtin:  colIdx(sH, 'gtin', 'GTIN', 'ean') !== -1 ? colIdx(sH, 'gtin', 'GTIN') : 2,
+      typeV: colIdx(sH, 'type vendeur', 'type_vendeur') !== -1 ? colIdx(sH, 'type vendeur', 'type_vendeur') : 5,
+      stock: colIdx(sH, 'stock_dispo', 'stock') !== -1 ? colIdx(sH, 'stock_dispo', 'stock') : 7,
+      title: colIdx(sH, 'title', 'titre') !== -1 ? colIdx(sH, 'title', 'titre') : 8,
+      age:   colIdx(sH, 'age_stock', 'age') !== -1 ? colIdx(sH, 'age_stock', 'age') : 10,
+      val:   colIdx(sH, 'Valeur', 'valeur') !== -1 ? colIdx(sH, 'Valeur', 'valeur') : 11,
     };
-    log(`Stock clé détectée: col[${S.pid}]="${sH[S.pid]}"`);
     await yield_();
 
-    // ── 2. Conso ────────────────────────────────────────────
-    setProgress(18, 'Lecture Conso (fichier large, patience…)');
+    // ── 3. Conso ───────────────────────────────────────────────
+    setProgress(18, 'Lecture Conso…');
     log(`Conso: ${files.conso.name}`);
     await yield_();
     const consoWb = await readWorkbook(files.conso);
     const { headers: cH, rows: consoRows } = sheetToArrays(consoWb);
     log(`Conso: ${consoRows.length.toLocaleString()} lignes`, 'info');
 
-    // Conso column indices — from workflow: A=N1, B=N2, C=N3, D=ProductId, I=Shopname, L=OfferPrice, O=Brandlabel
-    const C = {
-      n1:     colIdx(cH, 'Label_N1', 'N1', 'label_n1') !== -1 ? colIdx(cH, 'Label_N1', 'N1', 'label_n1') : 0,
-      n2:     colIdx(cH, 'Label_N2', 'N2', 'label_n2') !== -1 ? colIdx(cH, 'Label_N2', 'N2', 'label_n2') : 1,
-      n3:     colIdx(cH, 'Label_N3', 'N3', 'label_n3') !== -1 ? colIdx(cH, 'Label_N3', 'N3', 'label_n3') : 2,
-      pid:    colIdx(cH, 'ProductId', 'product_id', 'Id') !== -1 ? colIdx(cH, 'ProductId', 'product_id', 'Id') : 3,
-      shop:   colIdx(cH, 'Shopname', 'shop_name', 'vendeur', 'seller') !== -1 ? colIdx(cH, 'Shopname', 'shop_name', 'vendeur') : 8,
-      price:  colIdx(cH, 'OfferPrice', 'offerprice', 'prix', 'price') !== -1 ? colIdx(cH, 'OfferPrice', 'offerprice', 'prix', 'price') : 11,
-      brand:  colIdx(cH, 'Brandlabel', 'brand', 'marque', 'brand_label') !== -1 ? colIdx(cH, 'Brandlabel', 'brand', 'marque') : 14,
+    // From workflow: A=N1, B=N2, C=N3, D=ProductId, I=Shopname, L=OfferPrice, O=Brandlabel
+    const CC = {
+      n1:    colIdx(cH, 'Label_N1','N1','label_n1') !== -1 ? colIdx(cH,'Label_N1','N1','label_n1') : 0,
+      n2:    colIdx(cH, 'Label_N2','N2') !== -1 ? colIdx(cH,'Label_N2','N2') : 1,
+      n3:    colIdx(cH, 'Label_N3','N3') !== -1 ? colIdx(cH,'Label_N3','N3') : 2,
+      pid:   colIdx(cH, 'ProductId','product_id','Id') !== -1 ? colIdx(cH,'ProductId','product_id','Id') : 3,
+      shop:  colIdx(cH, 'Shopname','shop_name','vendeur') !== -1 ? colIdx(cH,'Shopname','shop_name') : 8,
+      price: colIdx(cH, 'OfferPrice','offerprice','prix') !== -1 ? colIdx(cH,'OfferPrice','offerprice','prix') : 11,
+      brand: colIdx(cH, 'Brandlabel','brand','marque') !== -1 ? colIdx(cH,'Brandlabel','brand','marque') : 14,
     };
-    log(`Conso — pid:${C.pid}="${cH[C.pid]}", N1:${C.n1}, brand:${C.brand}="${cH[C.brand]}", price:${C.price}="${cH[C.price]}"`);
-
     const consoMap = new Map();
     for (const row of consoRows) {
-      const k = String(row[C.pid] || '').trim();
+      const k = String(row[CC.pid]||'').trim();
       if (k && !consoMap.has(k)) consoMap.set(k, row);
     }
     log(`Conso map: ${consoMap.size.toLocaleString()} entrées`);
     await yield_();
 
-    // ── 3. L3M ─────────────────────────────────────────────
-    setProgress(40, 'Lecture L3M (fichier large, patience…)');
+    // ── 4. L3M ────────────────────────────────────────────────
+    setProgress(40, 'Lecture L3M…');
     log(`L3M: ${files.l3m.name}`);
     await yield_();
     const l3mWb = await readWorkbook(files.l3m);
     const { headers: lH, rows: l3mRows } = sheetToArrays(l3mWb);
-    log(`L3M: ${l3mRows.length.toLocaleString()} lignes, ${lH.length} colonnes`, 'info');
+    log(`L3M: ${l3mRows.length.toLocaleString()} lignes`, 'info');
 
-    // L3M columns — positional from workflow formulas (A=0, E=4, F=5, G=6, Q=16, W=22, Z=25)
-    // Also try header detection
-    const L = {
-      pid: colIdx(lH, 'ProductId', 'SKU', 'sku', 'Id') !== -1 ? colIdx(lH, 'ProductId', 'SKU', 'sku') : 0,
-      pv:  colIdx(lH, 'Views', 'PV', 'page_views', 'vues') !== -1 ? colIdx(lH, 'Views', 'PV', 'page_views') : 4,
-      is_: colIdx(lH, 'Items', 'IS', 'items_sold', 'commandes') !== -1 ? colIdx(lH, 'Items', 'IS', 'items_sold') : 5,
-      gmv: colIdx(lH, 'CA ALL', 'GMV', 'Revenue', 'CA', 'ca_all') !== -1 ? colIdx(lH, 'CA ALL', 'GMV', 'Revenue', 'CA') : 6,
-      qty: colIdx(lH, 'Quantite', 'Quantity', 'qty') !== -1 ? colIdx(lH, 'Quantite', 'Quantity', 'qty') : 16,
-      ca:  colIdx(lH, 'CA Retail', 'CA_HT', 'montant') !== -1 ? colIdx(lH, 'CA Retail', 'CA_HT') : 22,
-      marge: colIdx(lH, 'Marge', 'marge_amount', 'Margin') !== -1 ? colIdx(lH, 'Marge', 'marge_amount') : 25,
+    // Positional from workflow formulas (A=0, E=4, F=5, G=6, Q=16, W=22, Z=25)
+    const LC = {
+      pid:   colIdx(lH,'ProductId','SKU','sku') !== -1 ? colIdx(lH,'ProductId','SKU','sku') : 0,
+      pv:    colIdx(lH,'Views','PV','page_views') !== -1 ? colIdx(lH,'Views','PV') : 4,
+      is_:   colIdx(lH,'Items','IS','items_sold') !== -1 ? colIdx(lH,'Items','IS') : 5,
+      gmv:   colIdx(lH,'CA ALL','GMV','Revenue','CA') !== -1 ? colIdx(lH,'CA ALL','GMV','Revenue','CA') : 6,
+      qty:   colIdx(lH,'Quantite','Quantity','qty') !== -1 ? colIdx(lH,'Quantite','Quantity') : 16,
+      ca:    22,  // Column W — CA total for Marge% calc
+      marge: 25,  // Column Z — Marge amount
     };
-    log(`L3M — pid:${L.pid}="${lH[L.pid]}", PV:${L.pv}="${lH[L.pv]}", IS:${L.is_}="${lH[L.is_]}", GMV:${L.gmv}="${lH[L.gmv]}"`);
-
-    // Build L3M map — aggregate by ProductId (multiple rows per product)
     const l3mMap = new Map();
     for (const row of l3mRows) {
-      const k = String(row[L.pid] || '').trim();
+      const k = String(row[LC.pid]||'').trim();
       if (!k) continue;
-      const pv   = parseNum(row[L.pv]);
-      const is_  = parseNum(row[L.is_]);
-      const gmv  = parseNum(row[L.gmv]);
-      const qty  = parseNum(row[L.qty]);
-      const ca   = parseNum(row[L.ca]);
-      const mAmt = parseNum(row[L.marge]);
+      const pv=parseNum(row[LC.pv]), is_=parseNum(row[LC.is_]), gmv=parseNum(row[LC.gmv]);
+      const qty=parseNum(row[LC.qty]), ca=parseNum(row[LC.ca]), mAmt=parseNum(row[LC.marge]);
       if (l3mMap.has(k)) {
-        const e = l3mMap.get(k);
-        e.pv += pv; e.is += is_; e.gmv += gmv; e.qty += qty; e.ca += ca; e.mAmt += mAmt;
+        const e=l3mMap.get(k);
+        e.pv+=pv; e.is+=is_; e.gmv+=gmv; e.qty+=qty; e.ca+=ca; e.mAmt+=mAmt;
       } else {
-        l3mMap.set(k, { pv, is: is_, gmv, qty, ca, mAmt });
+        l3mMap.set(k, {pv, is:is_, gmv, qty, ca, mAmt});
       }
     }
-    // Post-compute ratios
-    for (const [, v] of l3mMap) {
-      v.margePct     = v.ca  > 0 ? v.mAmt / v.ca  : 0;
-      v.coutUnitaire = v.qty > 0 ? (v.ca - v.mAmt) / v.qty : 0;
+    for (const [,v] of l3mMap) {
+      v.margePct     = v.ca  > 0 ? roundN(v.mAmt/v.ca*100, 2)        : 0;
+      v.coutUnitaire = v.qty > 0 ? roundN((v.ca-v.mAmt)/v.qty, 2)    : 0;
     }
-    log(`L3M map: ${l3mMap.size.toLocaleString()} produits agrégés`);
+    log(`L3M map: ${l3mMap.size.toLocaleString()} produits`);
     await yield_();
 
-    // ── 4. Jumia ────────────────────────────────────────────
+    // ── 5. Jumia ──────────────────────────────────────────────
     setProgress(62, 'Lecture IP Jumia…');
     log(`Jumia: ${files.jumia.name}`);
     await yield_();
     const jumiaWb = await readWorkbook(files.jumia);
     const { headers: jH, rows: jumiaRows } = sheetToArrays(jumiaWb);
     log(`Jumia: ${jumiaRows.length.toLocaleString()} lignes`, 'info');
-
-    // Jumia columns — from workflow: C=sku(key), K=prix_jumia, N=Lien
-    const J = {
-      pid:  colIdx(jH, 'sku', 'SKU', 'ProductId', 'mon_ean') !== -1 ? colIdx(jH, 'sku', 'SKU', 'ProductId') : 2,
-      px:   colIdx(jH, 'prix_jumia', 'Prix_Jumia', 'price_jumia') !== -1 ? colIdx(jH, 'prix_jumia', 'Prix_Jumia') : 10,
-      lien: colIdx(jH, 'Lien_du_produit', 'lien', 'link', 'url') !== -1 ? colIdx(jH, 'Lien_du_produit', 'lien', 'link') : 13,
-      views:colIdx(jH, 'views', 'Views') !== -1 ? colIdx(jH, 'views', 'Views') : 12,
+    // From workflow: C=sku(key=col2), K=prix_jumia(col10), N=Lien(col13)
+    const JC = {
+      pid:  colIdx(jH,'sku','SKU','ProductId') !== -1 ? colIdx(jH,'sku','SKU','ProductId') : 2,
+      px:   colIdx(jH,'prix_jumia','Prix_Jumia') !== -1 ? colIdx(jH,'prix_jumia','Prix_Jumia') : 10,
+      lien: colIdx(jH,'Lien_du_produit','lien','link') !== -1 ? colIdx(jH,'Lien_du_produit','lien') : 13,
     };
-    log(`Jumia — pid:${J.pid}="${jH[J.pid]}", prix:${J.px}="${jH[J.px]}", lien:${J.lien}="${jH[J.lien]}"`);
-
     const jumiaMap = new Map();
     for (const row of jumiaRows) {
-      const k = String(row[J.pid] || '').trim();
+      const k = String(row[JC.pid]||'').trim();
       if (k && !jumiaMap.has(k)) jumiaMap.set(k, row);
     }
     log(`Jumia map: ${jumiaMap.size.toLocaleString()} entrées`);
     await yield_();
 
-    // ── 5. Build enriched Retail rows (37 cols) ─────────────
-    setProgress(75, 'Fusion et calcul des colonnes…');
-    log('Fusion en cours…');
+    // ── 6. Build Report Retail rows ───────────────────────────
+    setProgress(75, 'Fusion des données…');
+    log('Construction des lignes Report Retail…');
     await yield_();
 
     const retailRows = [];
-    let matchC = 0, matchL = 0, matchJ = 0;
+    let matchC=0, matchL=0, matchJ=0, matchT=0;
 
     for (const sRow of stockRows) {
-      const pid  = String(sRow[S.pid] || '').trim();
-      const cRow = consoMap.get(pid);  if (cRow) matchC++;
-      const lDat = l3mMap.get(pid);    if (lDat) matchL++;
-      const jRow = jumiaMap.get(pid);  if (jRow) matchJ++;
+      const pid      = String(sRow[SC.pid]||'').trim();
+      const gtin     = String(sRow[SC.gtin]||'').trim();
+      const rawCat   = String(sRow[SC.cat]||'');
+      const typeV    = String(sRow[SC.typeV]||'');
+      const stockQty = parseNum(sRow[SC.stock]);
+      const age      = parseNum(sRow[SC.age]);
+      const valeur   = parseNum(sRow[SC.val]);
+      const title    = String(sRow[SC.title]||'');
 
-      // ── Stock base ──
-      const rawCat  = String(sRow[S.cat] || '');
-      const n1      = cRow ? String(cRow[C.n1] || '')    : '';
-      const n2      = cRow ? String(cRow[C.n2] || '')    : '';
-      const n3      = cRow ? String(cRow[C.n3] || '')    : '';
-      const marque  = cRow ? String(cRow[C.brand] || '') : '';
-      const prixLive= cRow ? parseNum(cRow[C.price])     : 0;
-      const vendeurBO=cRow ? String(cRow[C.shop] || '')  : '';
-      const typeV   = String(sRow[S.typeV] || '');
-      const stock   = parseNum(sRow[S.stock]);
-      const age     = parseNum(sRow[S.age]);
-      const valeur  = parseNum(sRow[S.valeur]);
+      // Sourcing type from Repartition sku 1P
+      const srcType = repSkuMap.get(gtin) || repSkuMap.get(pid) || '';
+      if (srcType) matchT++;
 
-      // ── L3M ──
-      const pv      = lDat ? lDat.pv  : 0;
-      const is_     = lDat ? lDat.is  : 0;
-      const gmv     = lDat ? lDat.gmv : 0;
-      const margePct= lDat ? roundN(lDat.margePct * 100, 2)  : 0;
-      const coutU   = lDat ? roundN(lDat.coutUnitaire, 2)    : 0;
+      // Owner
+      const owner = srcType === '1P Local B1' ? 'MB' : srcType === '1P Chine' ? 'SA' : '';
 
-      // ── Jumia ──
-      const prixJ   = jRow ? parseNum(jRow[J.px])           : 0;
-      const lienJ   = jRow ? String(jRow[J.lien] || '')     : '';
+      // Conso
+      const cRow   = consoMap.get(pid);
+      if (cRow) matchC++;
+      const n1     = cRow ? String(cRow[CC.n1]||'')    : '';
+      const n2     = cRow ? String(cRow[CC.n2]||'')    : '';
+      const n3     = cRow ? String(cRow[CC.n3]||'')    : '';
+      const marque = cRow ? String(cRow[CC.brand]||'') : '';
+      const prixLive = cRow ? parseNum(cRow[CC.price]) : 0;
+      const vendeurBO= cRow ? String(cRow[CC.shop]||'')  : '';
 
-      // ── Computed ──
-      const moyVente = is_ > 0 ? roundN(is_ / 90, 3) : 0;
-      const couv     = moyVente > 0 ? roundN(stock / moyVente, 0) : 0;
-      const cr       = pv  > 0 ? roundN(is_ / pv, 4)  : 0;
-      const asp      = is_ > 0 ? roundN(gmv / is_, 2)  : 0;
-      const margeLive= (prixLive > 0 && coutU > 0) ? roundN((prixLive/1.2 - coutU) / (prixLive/1.2), 4) : '';
+      // L3M
+      const lDat = l3mMap.get(pid);
+      if (lDat) matchL++;
+      const pv        = lDat ? lDat.pv        : 0;
+      const is_       = lDat ? lDat.is        : 0;
+      const gmv       = lDat ? roundN(lDat.gmv,2) : 0;
+      const margePct  = lDat ? lDat.margePct  : 0;
+      const coutU     = lDat ? lDat.coutUnitaire : 0;
+
+      // Jumia
+      const jRow  = jumiaMap.get(pid);
+      if (jRow) matchJ++;
+      const prixJ = jRow ? parseNum(jRow[JC.px])        : 0;
+      const lienJ = jRow ? String(jRow[JC.lien]||'')    : '';
+
+      // Category
       const catRevue = mapCategory(n1, rawCat);
-      const zone     = detectZone(sRow[S.zone], sRow[S.empl]);
-
-      // ── Alert columns ──
-      const checkPrix= (prixJ > 0 && prixLive > 0 && prixJ < prixLive) ? 'prix à revoir' : '';
-      const checkBO  = (typeV === 'Retail' && vendeurBO && vendeurBO !== 'Marjanemall') ? 'Retail Non BO' : '';
-      const animCom  = computeAnimation(age, couv, cr);
 
       retailRows.push({
-        // A-H: base
-        'Catégorie Revue':      catRevue,
-        'Categorie':            rawCat,
-        'Type de Stock':        typeV,
-        'Type':                 '',          // sourcing type — needs Repartition sku 1P
-        'Owner':                '',
-        'ProductId':            pid,
-        'gtin':                 String(sRow[S.gtin] || ''),
-        'title':                String(sRow[S.title] || ''),
-        // I-L: Conso (yellow)
-        'Marque':               marque,
-        'N1':                   n1,
-        'N2':                   n2,
-        'N3':                   n3,
-        // M-S: Stock metrics
-        'Stock':                stock,
-        'Age stock Moyen':      age,
-        'Tranche Age':          trancheAge(age),
-        'VALEUR PV HT':         valeur,
-        'Moyenne de vente':     moyVente,
-        'Couverture (Jrs)':     couv,
-        'Tranche de couverture':trancheCoverage(couv),
-        // T-W: L3M views/CR
-        'PV L3M':               pv,
-        'Tranche de PV':        tranchePV(pv),
-        'CR L3M':               cr,
-        'Tranche de CR':        trancheCR(cr),
-        // X-AA: L3M sales (yellow)
-        'IS L3M':               is_,
-        'GMV L3M':              roundN(gmv, 2),
-        'Marge L3M':            margePct,
-        'Cout unitaire':        coutU,
-        // AB-AE: computed
-        'ASP L3M':              asp,
-        'Prix Live':            prixLive,
-        'Marge live':           margeLive,
-        'Statut marge':         '',          // needs Repartition sku 1P for sourcing type
-        // AF-AK
-        'Prix Jumia':           prixJ,
-        'Check Prix':           checkPrix,
-        'Lien Jumia':           lienJ,
-        'Vendeur BO':           vendeurBO,
-        'Check BO':             checkBO,
-        'Animation commerciale':animCom,
-        // Internal (for Vue globale computation, stripped from sheet)
-        _zone:    zone,
-        _typeV:   typeV,
-        _catRevue:catRevue,
-        _pv:      pv,
-        _age:     age,
-        _couv:    couv,
-        _prixLive:prixLive,
-        _prixJ:   prixJ,
-        _vendeurBO:vendeurBO,
-        _checkBO: checkBO,
-        _checkPrix:checkPrix,
+        catRevue, rawCat, typeV, srcType, owner,
+        pid, gtin, title,
+        marque, n1, n2, n3,
+        stock: stockQty, age, valeur,
+        pv, is: is_, gmv, margePct, coutU,
+        prixLive, vendeurBO, prixJ, lienJ,
       });
     }
+
     log(`Fusion: ${retailRows.length.toLocaleString()} lignes`, 'info');
-    log(`  Conso: ${pct(matchC, retailRows.length)} | L3M: ${pct(matchL, retailRows.length)} | Jumia: ${pct(matchJ, retailRows.length)}`);
+    log(`  Sourcing B1/B2: ${pct(matchT,retailRows.length)} | Conso: ${pct(matchC,retailRows.length)} | L3M: ${pct(matchL,retailRows.length)} | Jumia: ${pct(matchJ,retailRows.length)}`);
     await yield_();
 
-    // ── 6. Build output workbook ─────────────────────────────
-    setProgress(88, 'Génération du classeur Excel…');
-    log('Construction Vue globale…');
+    // ── 7. Generate Excel with ExcelJS ─────────────────────────
+    setProgress(85, 'Génération Excel formaté…');
+    log('Construction du classeur avec formules et mise en forme…');
     await yield_();
 
-    const wb = XLSX.utils.book_new();
+    outputBlob = await buildExcelOutput(retailRows, weekNum, year);
 
-    // Sheet 1 — Vue globale (exact layout)
-    const vgSheet = buildVueGlobaleSheet(retailRows, weekNum, year);
-    XLSX.utils.book_append_sheet(wb, vgSheet, 'Vue globale');
-
-    // Sheet 2 — Report Retail (37 cols, internal _ fields stripped)
-    log('Construction Report Retail…');
-    await yield_();
-    const cleanRows = retailRows.map(r => {
-      const out = {};
-      for (const [k, v] of Object.entries(r)) {
-        if (!k.startsWith('_')) out[k] = v;
-      }
-      return out;
-    });
-    const retailSheet = XLSX.utils.json_to_sheet(cleanRows);
-    retailSheet['!cols'] = buildRetailColWidths();
-    XLSX.utils.book_append_sheet(wb, retailSheet, 'Report Retail');
-
-    // Sheet 3 — Stock raw
-    const stockSheet = XLSX.utils.json_to_sheet(
-      stockRows.map(r => Object.fromEntries(sH.map((h, i) => [h || `Col${i}`, r[i]])))
-    );
-    XLSX.utils.book_append_sheet(wb, stockSheet, 'Stock');
-
-    outputWorkbook = wb;
-    outputWorkbook._filename = `Weekly_Report_Stock_S${weekNum}_${year}.xlsx`;
     setProgress(100, 'Rapport généré !');
-    log(`✅ Fichier prêt: ${outputWorkbook._filename}`, 'info');
+    log(`✅ ${outputFilename}`, 'info');
 
-    // ── Show result ─────────────────────────────────────────
     document.getElementById('result-title').textContent = `Rapport S${weekNum}_${year} généré`;
     document.getElementById('result-summary').textContent =
       `${retailRows.length.toLocaleString()} produits · ` +
-      `Conso ${pct(matchC, retailRows.length)} · ` +
-      `L3M ${pct(matchL, retailRows.length)} · ` +
-      `Jumia ${pct(matchJ, retailRows.length)}`;
+      `Sourcing ${pct(matchT,retailRows.length)} · ` +
+      `Conso ${pct(matchC,retailRows.length)} · L3M ${pct(matchL,retailRows.length)} · Jumia ${pct(matchJ,retailRows.length)}`;
     document.getElementById('result-block').classList.remove('hidden');
 
   } catch (err) {
@@ -509,182 +434,303 @@ async function runProcess() {
   }
 }
 
-// ── Animation commerciale (simplified) ──────────────────────
-function computeAnimation(age, couv, cr) {
-  if (age > 180 && couv > 120) return 'Baisse de prix permanente ou retour fournisseur';
-  if (age > 60  && couv > 120) return 'Baisse de prix permanente';
-  if (couv > 60 && cr > 0.05)  return 'Vente Flash';
-  return '';
+// ── Excel generation ──────────────────────────────────────────
+async function buildExcelOutput(retailRows, weekNum, year) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Marjane Mall Report Generator';
+  wb.created = new Date();
+
+  // Sheet 1: Vue globale
+  const vgWs = wb.addWorksheet('Vue globale', { properties: { tabColor: { argb: 'FF00B050' } } });
+  buildVueGlobale(vgWs, retailRows.length);
+
+  // Sheet 2: Report Retail (data + formulas)
+  const rrWs = wb.addWorksheet('Report Retail', { properties: { tabColor: { argb: 'FF00B050' } } });
+  buildReportRetail(rrWs, retailRows);
+
+  const buffer = await wb.xlsx.writeBuffer();
+  return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
-// ── Build Vue globale sheet ───────────────────────────────────
-function buildVueGlobaleSheet(retailRows, weekNum, year) {
-  // Only Retail rows (exclude FFM for Vue globale)
-  const retail = retailRows.filter(r => r._typeV === 'Retail');
-  // If no type vendeur distinction → use all
-  const base   = retail.length > 0 ? retail : retailRows;
-
-  // 6 sections: [name, filterFn]
-  const SECTIONS = [
-    ['Scope total Retail',                       r => true],
-    ['Produits Non BO',                          r => !!r._checkBO],
-    ['Produits KO Prix Jumia',                   r => !!r._checkPrix],
-    ['Age stock >180 jours',                     r => r._age > 180],
-    ['Couverture >120 jours et Age > 60 jours',  r => r._couv > 120 && r._age > 60],
-    ['Low views (PV L3M <200)',                   r => r._pv < 200],
-  ];
-
-  // For each section + each category → compute [skuB1, stockB1, skuB2, stockB2, skuTotal, stockTotal]
-  function aggCat(rows, filterFn, catName) {
-    const filtered = rows.filter(filterFn);
-    const catRows  = catName === 'Total général' ? filtered : filtered.filter(r => r._catRevue === catName);
-    let skuB1=0, stB1=0, skuB2=0, stB2=0;
-    for (const r of catRows) {
-      if (r._zone === 'B1') { skuB1++; stB1 += parseNum(r['Stock']); }
-      else                  { skuB2++; stB2 += parseNum(r['Stock']); }
-    }
-    return [skuB1, stB1, skuB2, stB2, skuB1+skuB2, stB1+stB2];
-  }
-
-  // Build AoA (array of arrays)
-  const aoa = [];
-
-  // Row 0 (Excel row 1): Section headers
-  const row0 = new Array(37).fill('');
-  row0[0]  = 'Catégorie';
-  row0[1]  = SECTIONS[0][0];
-  row0[7]  = SECTIONS[1][0];
-  row0[13] = SECTIONS[2][0];
-  row0[19] = SECTIONS[3][0];
-  row0[25] = SECTIONS[4][0];
-  row0[31] = SECTIONS[5][0];
-  aoa.push(row0);
-
-  // Row 1 (Excel row 2): B1 / B2 / Total sub-headers
-  const row1 = new Array(37).fill('');
-  for (let s = 0; s < 6; s++) {
-    const offset = 1 + s * 6;
-    row1[offset + 0] = 'B1';
-    row1[offset + 2] = 'B2';
-    row1[offset + 4] = 'Total';
-  }
-  aoa.push(row1);
-
-  // Row 2 (Excel row 3): #SKU / Stock labels
-  const row2 = new Array(37).fill('');
-  row2[0] = 'Catégorie';
-  for (let s = 0; s < 6; s++) {
-    const offset = 1 + s * 6;
-    row2[offset + 0] = '#SKU';
-    row2[offset + 1] = 'Stock';
-    row2[offset + 2] = '#SKU';
-    row2[offset + 3] = 'Stock';
-    row2[offset + 4] = '#SKU';
-    row2[offset + 5] = 'Stock';
-  }
-  aoa.push(row2);
-
-  // Data rows: one per category + Total général
-  const allCats = [...CATEGORIES_ORDER, 'Total général'];
-  for (const cat of allCats) {
-    const dataRow = new Array(37).fill('');
-    dataRow[0] = cat;
-    for (let s = 0; s < 6; s++) {
-      const [skuB1, stB1, skuB2, stB2, skuT, stT] = aggCat(base, SECTIONS[s][1], cat);
-      const offset = 1 + s * 6;
-      dataRow[offset + 0] = skuB1;
-      dataRow[offset + 1] = stB1;
-      dataRow[offset + 2] = skuB2;
-      dataRow[offset + 3] = stB2;
-      dataRow[offset + 4] = skuT;
-      dataRow[offset + 5] = stT;
-    }
-    aoa.push(dataRow);
-  }
-
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-  // Merged cells
-  ws['!merges'] = [
-    // Row 1: category header spans 3 rows
-    { s:{r:0,c:0}, e:{r:2,c:0} },
-    // Row 1: 6 section headers (each spans 6 cols)
-    { s:{r:0,c:1},  e:{r:0,c:6}  },
-    { s:{r:0,c:7},  e:{r:0,c:12} },
-    { s:{r:0,c:13}, e:{r:0,c:18} },
-    { s:{r:0,c:19}, e:{r:0,c:24} },
-    { s:{r:0,c:25}, e:{r:0,c:30} },
-    { s:{r:0,c:31}, e:{r:0,c:36} },
-    // Row 2: B1/B2/Total sub-headers (each spans 2 cols)
-    { s:{r:1,c:1},  e:{r:1,c:2}  }, { s:{r:1,c:3},  e:{r:1,c:4}  }, { s:{r:1,c:5},  e:{r:1,c:6}  },
-    { s:{r:1,c:7},  e:{r:1,c:8}  }, { s:{r:1,c:9},  e:{r:1,c:10} }, { s:{r:1,c:11}, e:{r:1,c:12} },
-    { s:{r:1,c:13}, e:{r:1,c:14} }, { s:{r:1,c:15}, e:{r:1,c:16} }, { s:{r:1,c:17}, e:{r:1,c:18} },
-    { s:{r:1,c:19}, e:{r:1,c:20} }, { s:{r:1,c:21}, e:{r:1,c:22} }, { s:{r:1,c:23}, e:{r:1,c:24} },
-    { s:{r:1,c:25}, e:{r:1,c:26} }, { s:{r:1,c:27}, e:{r:1,c:28} }, { s:{r:1,c:29}, e:{r:1,c:30} },
-    { s:{r:1,c:31}, e:{r:1,c:32} }, { s:{r:1,c:33}, e:{r:1,c:34} }, { s:{r:1,c:35}, e:{r:1,c:36} },
-  ];
-
+// ── Vue globale ───────────────────────────────────────────────
+function buildVueGlobale(ws, totalRetailRows) {
   // Column widths
-  ws['!cols'] = [
-    { wch: 30 }, // A: Catégorie
-    ...Array(36).fill({ wch: 10 }),
-  ];
-  ws['!cols'][0] = { wch: 30 };
+  ws.getColumn(1).width = 32;
+  for (let c = 2; c <= 37; c++) ws.getColumn(c).width = 10;
 
-  return ws;
+  // Row 1 height
+  ws.getRow(1).height = 36;
+  ws.getRow(2).height = 20;
+  ws.getRow(3).height = 18;
+
+  // ── Merge layout ────────────────────────────────────────────
+  ws.mergeCells('A1:A3'); // "Catégorie" header spans rows 1-3
+
+  const sectionStarts = ['B','H','N','T','Z','AF'];
+  sectionStarts.forEach((col, i) => {
+    const endCol = String.fromCharCode(col.charCodeAt(0) + 5);
+    const endColFull = i < 4
+      ? String.fromCharCode(col.charCodeAt(0) + 5)      // single letter: B→G, H→M, N→S, T→Y
+      : (i === 4 ? 'AE' : 'AK');                        // Z→AE, AF→AK
+
+    // Row 1: section header (6 cols each)
+    ws.mergeCells(`${col}1:${endColFull}1`);
+
+    // Row 2: B1(2cols), B2(2cols), Total(2cols)
+    const c0 = colLetterToNum(col);
+    ws.mergeCells(`${numToColLetter(c0)}2:${numToColLetter(c0+1)}2`);
+    ws.mergeCells(`${numToColLetter(c0+2)}2:${numToColLetter(c0+3)}2`);
+    ws.mergeCells(`${numToColLetter(c0+4)}2:${numToColLetter(c0+5)}2`);
+  });
+
+  // ── Row 1: section headers ───────────────────────────────────
+  styleCell(ws.getCell('A1'), 'Catégorie', S.hFill, S.hFont, S.hAlign, S.hBorderRow1);
+  VG_SECTIONS.forEach((sec, i) => {
+    const col = sectionStarts[i];
+    const c = ws.getCell(`${col}1`);
+    styleCell(c, sec.name, S.hFill, S.hFont, S.hAlign, S.hBorderRow1);
+  });
+
+  // ── Row 2: B1 / B2 / Total ──────────────────────────────────
+  sectionStarts.forEach(col => {
+    const c0 = colLetterToNum(col);
+    ['B1','B2','Total'].forEach((lbl, j) => {
+      const c = ws.getCell(`${numToColLetter(c0 + j*2)}2`);
+      styleCell(c, lbl, S.hFill, S.hFont, S.hAlign, S.hBorderRow2);
+    });
+  });
+
+  // ── Row 3: #SKU / Stock col headers ──────────────────────────
+  styleCell(ws.getCell('A3'), 'Catégorie', S.hFill, S.hFont, S.hAlign, S.hBorderRow3);
+  sectionStarts.forEach(col => {
+    const c0 = colLetterToNum(col);
+    for (let j = 0; j < 6; j++) {
+      const lbl = j % 2 === 0 ? '# SKU' : 'Stock';
+      const c = ws.getCell(`${numToColLetter(c0+j)}3`);
+      styleCell(c, lbl, S.hFill, S.hFont, S.hAlign, S.hBorderRow3);
+    }
+  });
+
+  // ── Data rows (4–14): one per category ──────────────────────
+  const dataRows = [...CATEGORIES_ORDER]; // 11 categories
+  const N = totalRetailRows; // number of data rows in Report Retail
+
+  dataRows.forEach((cat, i) => {
+    const row = 4 + i;
+    // Column A: category name
+    const aCell = ws.getCell(`A${row}`);
+    aCell.value = cat;
+    aCell.font  = { size: 11, name: 'Calibri' };
+    aCell.alignment = S.dAlign;
+    aCell.border = S.dBorder;
+
+    // For each of the 6 sections → 6 formula cells (B1 #SKU, B1 Stock, B2 #SKU, B2 Stock, Total #SKU, Total Stock)
+    VG_SECTIONS.forEach((sec, si) => {
+      const c0 = colLetterToNum(sectionStarts[si]);
+      const extra = sec.extra;
+
+      // B1 #SKU
+      setVGCell(ws, numToColLetter(c0),   row, mkCountIf(cat, '1P Local B1',   extra));
+      // B1 Stock
+      setVGCell(ws, numToColLetter(c0+1), row, mkSumIf(cat,   '1P Local B1',   extra));
+      // B2 #SKU
+      setVGCell(ws, numToColLetter(c0+2), row, mkCountIf(cat, '1P LOCAL B2',   extra));
+      // B2 Stock
+      setVGCell(ws, numToColLetter(c0+3), row, mkSumIf(cat,   '1P LOCAL B2',   extra));
+      // Total #SKU (no type filter — always correct)
+      setVGCell(ws, numToColLetter(c0+4), row, mkCountIf(cat, null,             extra));
+      // Total Stock
+      setVGCell(ws, numToColLetter(c0+5), row, mkSumIf(cat,   null,             extra));
+    });
+  });
+
+  // ── Row 15: Total général ─────────────────────────────────────
+  const totalRow = 4 + dataRows.length; // row 15
+  const aTotal   = ws.getCell(`A${totalRow}`);
+  aTotal.value   = 'Total général';
+  aTotal.font    = { bold: true, size: 11, name: 'Calibri' };
+  aTotal.alignment = S.dAlign;
+  aTotal.border  = S.dBorder;
+
+  sectionStarts.forEach(col => {
+    const c0 = colLetterToNum(col);
+    for (let j = 0; j < 6; j++) {
+      const cellRef = numToColLetter(c0+j);
+      const c = ws.getCell(`${cellRef}${totalRow}`);
+      c.value     = { formula: `SUM(${cellRef}4:${cellRef}${totalRow-1})` };
+      c.numFmt    = '#,##0';
+      c.font      = { bold: true, size: 11, name: 'Calibri' };
+      c.alignment = S.dAlign;
+      c.border    = S.dBorder;
+    }
+  });
 }
 
-// ── Report Retail column widths ───────────────────────────────
-function buildRetailColWidths() {
-  // A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z, AA, AB, AC, AD, AE, AF, AG, AH, AI, AJ, AK
-  return [
-    { wch: 22 }, // A Catégorie Revue
-    { wch: 22 }, // B Categorie
-    { wch: 10 }, // C Type de Stock
-    { wch: 14 }, // D Type
-    { wch: 10 }, // E Owner
-    { wch: 16 }, // F ProductId
-    { wch: 16 }, // G gtin
-    { wch: 40 }, // H title
-    { wch: 18 }, // I Marque
-    { wch: 22 }, // J N1
-    { wch: 22 }, // K N2
-    { wch: 22 }, // L N3
-    { wch: 10 }, // M Stock
-    { wch: 14 }, // N Age stock Moyen
-    { wch: 14 }, // O Tranche Age
-    { wch: 14 }, // P VALEUR PV HT
-    { wch: 14 }, // Q Moyenne de vente
-    { wch: 14 }, // R Couverture (Jrs)
-    { wch: 18 }, // S Tranche de couverture
-    { wch: 10 }, // T PV L3M
-    { wch: 12 }, // U Tranche de PV
-    { wch: 10 }, // V CR L3M
-    { wch: 12 }, // W Tranche de CR
-    { wch: 10 }, // X IS L3M
-    { wch: 12 }, // Y GMV L3M
-    { wch: 12 }, // Z Marge L3M
-    { wch: 12 }, // AA Cout unitaire
-    { wch: 10 }, // AB ASP L3M
-    { wch: 12 }, // AC Prix Live
-    { wch: 12 }, // AD Marge live
-    { wch: 12 }, // AE Statut marge
-    { wch: 12 }, // AF Prix Jumia
-    { wch: 16 }, // AG Check Prix
-    { wch: 40 }, // AH Lien Jumia
-    { wch: 20 }, // AI Vendeur BO
-    { wch: 16 }, // AJ Check BO
-    { wch: 40 }, // AK Animation commerciale
-  ];
+// ── Formula builders for Vue globale ──────────────────────────
+function mkCountIf(cat, type, extra) {
+  const rr    = `'Report Retail'`;
+  const catCr = `${rr}!$A:$A,"${cat}"`;
+  const typeCr= type ? `,${rr}!$D:$D,"${type}"` : '';
+  return `COUNTIFS(${rr}!$C:$C,"Retail",${catCr}${typeCr}${extra})`;
+}
+function mkSumIf(cat, type, extra) {
+  const rr    = `'Report Retail'`;
+  const catCr = `${rr}!$A:$A,"${cat}"`;
+  const typeCr= type ? `,${rr}!$D:$D,"${type}"` : '';
+  return `SUMIFS(${rr}!$M:$M,${rr}!$C:$C,"Retail",${catCr}${typeCr}${extra})`;
+}
+function setVGCell(ws, col, row, formula) {
+  const c    = ws.getCell(`${col}${row}`);
+  c.value    = { formula };
+  c.numFmt   = '#,##0';
+  c.alignment = S.dAlign;
+  c.border   = S.dBorder;
+  c.font     = { size: 11, name: 'Calibri' };
 }
 
-// ── Download ──────────────────────────────────────────────────
+// ── Report Retail ─────────────────────────────────────────────
+const RR_HEADERS = [
+  'Catégorie Revue','Categorie','Type de Stock','Type','Owner',
+  'ProductId','gtin','title',
+  'Marque','N1','N2','N3',
+  'Stock','Age stock Moyen','Tranche Age','VALEUR PV HT',
+  'Moyenne de vente','Couverture (Jrs)','Tranche de couverture',
+  'PV L3M','Tranche de PV','CR L3M','Tranche de CR',
+  'IS L3M','GMV L3M','Marge L3M','Cout unitaire',
+  'ASP L3M','Prix Live','Marge live','Statut marge',
+  'Prix Jumia','Check Prix','Lien Jumia','Vendeur BO','Check BO','Animation commerciale'
+];
+
+function buildReportRetail(ws, retailRows) {
+  // Column widths
+  const widths = [22,22,12,14,10,16,16,40,18,22,22,22,10,14,12,14,14,14,18,10,12,10,12,10,12,12,12,10,12,12,12,12,18,40,20,16,40];
+  widths.forEach((w, i) => { ws.getColumn(i+1).width = w; });
+
+  // Header row
+  const hRow = ws.getRow(1);
+  hRow.height = 20;
+  RR_HEADERS.forEach((h, i) => {
+    const c = hRow.getCell(i+1);
+    c.value     = h;
+    c.font      = { bold: true, size: 11, name: 'Calibri' };
+    c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    c.border    = S.dBorder;
+    if (YELLOW_COLS.has(i)) c.fill = S.yFill;
+  });
+
+  // Data rows
+  retailRows.forEach((row, idx) => {
+    const r   = idx + 2; // Excel row number
+    const eRow = ws.getRow(r);
+    eRow.height = 15;
+
+    // Pre-computed values (from external lookups)
+    const vals = [
+      row.catRevue,  row.rawCat,    row.typeV,    row.srcType,  row.owner,
+      row.pid,       row.gtin,      row.title,
+      row.marque,    row.n1,        row.n2,        row.n3,
+      row.stock,     row.age,
+      null, // O: Tranche Age — formula
+      row.valeur,
+      null, // Q: Moyenne de vente — formula
+      null, // R: Couverture — formula
+      null, // S: Tranche couverture — formula
+      row.pv,
+      null, // U: Tranche PV — formula
+      null, // V: CR L3M — formula
+      null, // W: Tranche CR — formula
+      row.is,        row.gmv,       row.margePct,  row.coutU,
+      null, // AB: ASP — formula
+      row.prixLive,
+      null, // AD: Marge live — formula
+      null, // AE: Statut marge — formula (needs sourcing)
+      row.prixJ,
+      null, // AG: Check Prix — formula
+      row.lienJ,     row.vendeurBO,
+      null, // AJ: Check BO — formula
+      null, // AK: Animation — formula
+    ];
+
+    // Write pre-computed values
+    vals.forEach((v, i) => {
+      if (v !== null) {
+        const c = eRow.getCell(i+1);
+        c.value = v;
+        if (typeof v === 'number' && i >= 12) c.numFmt = '#,##0.##';
+      }
+    });
+
+    // Write formulas for computed columns
+    // O (15): Tranche Age
+    eRow.getCell(15).value = { formula: `IF(N${r}<=60,"0-60jrs",IF(N${r}<=120,"60-120jrs",IF(N${r}<=180,"120-180jrs",">180jrs")))` };
+    // Q (17): Moyenne de vente
+    eRow.getCell(17).value = { formula: `IFERROR(X${r}/90,0)` };
+    // R (18): Couverture
+    eRow.getCell(18).value = { formula: `IFERROR(ROUND(M${r}/Q${r},0),"")` };
+    // S (19): Tranche couverture
+    eRow.getCell(19).value = { formula: `IF(R${r}="","",IF(R${r}<=60,"0-60jrs",IF(R${r}<=120,"60-120jrs",IF(R${r}<=180,"120-180jrs",">180jrs"))))` };
+    // U (21): Tranche PV
+    eRow.getCell(21).value = { formula: `IF(T${r}<50,"<50",IF(T${r}<200,"50-200",IF(T${r}<500,"200-500",IF(T${r}<1000,"500-1000",">=1000"))))` };
+    // V (22): CR L3M
+    eRow.getCell(22).value = { formula: `IFERROR(X${r}/T${r},"")` };
+    // W (23): Tranche CR
+    eRow.getCell(23).value = { formula: `IFERROR(IF(V${r}<0.01,"<1%",IF(V${r}<0.03,"1-3%",IF(V${r}<0.1,"3-10%",">10%"))),"")` };
+    // AB (28): ASP L3M
+    eRow.getCell(28).value = { formula: `IFERROR(Y${r}/X${r},"")` };
+    // AD (30): Marge live  = (Prix_Live/1.2 - Cout_unit) / (Prix_Live/1.2)
+    eRow.getCell(30).value = { formula: `IFERROR((AC${r}/1.2-AA${r})/(AC${r}/1.2),"")` };
+    // AG (33): Check Prix
+    eRow.getCell(33).value = { formula: `IFERROR(IF(AF${r}="","",IF(AF${r}<AC${r},"prix \u00e0 revoir",IF(AC${r}>AB${r},"Prix Sup\u00e9rieur \u00e0 ASP",""))),"")` };
+    // AJ (36): Check BO
+    eRow.getCell(36).value = { formula: `IF(F${r}="(vide)","",IF(AND(C${r}="Retail",AI${r}<>"Marjanemall",AI${r}<>""),"Retail Non BO",""))` };
+    // AK (37): Animation commerciale
+    eRow.getCell(37).value = { formula: `IF(AND(N${r}>180,R${r}>120),"Baisse de prix permanente ou retour fournisseur",IF(AND(N${r}>60,R${r}>120),"Baisse de prix permanente",IF(AND(R${r}>60,V${r}>0.05),"Vente Flash","")))` };
+  });
+
+  // Auto-filter on header row
+  ws.autoFilter = { from: 'A1', to: `AK1` };
+}
+
+// ── ExcelJS style helper ──────────────────────────────────────
+function styleCell(cell, value, fill, font, alignment, border) {
+  cell.value     = value;
+  cell.fill      = fill;
+  cell.font      = font;
+  cell.alignment = alignment;
+  cell.border    = border;
+}
+
+// ── Column letter ↔ number conversion ────────────────────────
+function colLetterToNum(col) {
+  let n = 0;
+  for (let i = 0; i < col.length; i++) {
+    n = n * 26 + (col.charCodeAt(i) - 64);
+  }
+  return n;
+}
+function numToColLetter(n) {
+  let s = '';
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+// ── Download / Reset ──────────────────────────────────────────
 function downloadReport() {
-  if (!outputWorkbook) return;
-  XLSX.writeFile(outputWorkbook, outputWorkbook._filename);
+  if (!outputBlob) return;
+  const url = URL.createObjectURL(outputBlob);
+  const a   = document.createElement('a');
+  a.href    = url;
+  a.download = outputFilename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
-// ── Reset ─────────────────────────────────────────────────────
 function resetAll() {
   Object.keys(files).forEach(k => files[k] = null);
   document.querySelectorAll('.upload-zone').forEach(z => {
@@ -692,9 +738,8 @@ function resetAll() {
     z.querySelector('.file-name').textContent = '';
     z.querySelector('.file-input').value = '';
   });
-  document.getElementById('progress-block').classList.add('hidden');
-  document.getElementById('log-block').classList.add('hidden');
-  document.getElementById('result-block').classList.add('hidden');
+  ['progress-block','log-block','result-block'].forEach(id =>
+    document.getElementById(id).classList.add('hidden'));
   document.getElementById('btn-process').disabled = true;
-  outputWorkbook = null;
+  outputBlob = null;
 }

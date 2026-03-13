@@ -88,11 +88,11 @@
         </div>
 
         <div class="optional-block">
-          <div class="optional-label">Optionnel — Fichier modèle (semaine précédente)</div>
+          <div class="optional-label">⚠️ Requis pour B1/B2 — Rapport de la semaine précédente</div>
           <div class="upload-zone upload-zone--small" id="zone-template" data-key="template">
             <div class="upload-icon">📊</div>
-            <div class="upload-label">Weekly Report template</div>
-            <div class="upload-hint">Weekly Report Stock S[N-1].xlsx — pour conserver la structure</div>
+            <div class="upload-label">Weekly Report S[N-1].xlsx</div>
+            <div class="upload-hint">Nécessaire pour classifier B1 (1P Local) vs B2 (1P LOCAL B2).<br/>Sans ce fichier, seuls les totaux sont calculés.</div>
             <input type="file" accept=".xlsx,.xls" class="file-input" />
             <div class="file-name"></div>
           </div>
@@ -151,8 +151,10 @@
     <p>Marjane Mall · Reporting hebdomadaire automatisé · <span id="footer-year"></span></p>
   </footer>
 
-  <!-- SheetJS CDN -->
+  <!-- SheetJS (reading large files) -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <!-- ExcelJS (formatted output with live formulas) -->
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
   <script src="assets/app.js"></script>
 </body>
 </html>
