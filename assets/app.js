@@ -3,37 +3,62 @@
    SheetJS (reading) + ExcelJS (formatted output + live formulas)
    ============================================================ */
 
-// ── Category mapping (from hidden "Categorie revue" sheet) ───
+// ── Category mapping (exact copy of "Categorie revue" sheet) ─
 const CATEGORIE_MAP = {
-  'HYGIENE - BEAUTE - PARFUM':    'Beaute',
-  'MATERIEL MEDICAL':             'Beaute',
-  'PARAPHARMACIE':                'Beaute',
-  'JEUX - JOUETS':                'Bebe - Jouet',
-  'PUERICULTURE':                 'Bebe - Jouet',
-  'ANIMALERIE':                   'Bricolage Jardin Animalerie',
-  'BRICOLAGE - OUTILLAGE':        'Bricolage Jardin Animalerie',
-  'DROGUERIE':                    'Bricolage Jardin Animalerie',
-  'JARDIN - PISCINE':             'Bricolage Jardin Animalerie',
-  'ELECTROMENAGER':               'PEM',
-  'INFORMATIQUE':                 'Informatique & gaming',
-  'JEUX VIDEO':                   'Informatique & gaming',
-  'ART DE LA TABLE':              'Maison',
-  'DECO - LINGE - LUMINAIRE':     'Maison',
-  'DECO - LINGE':                 'Maison',
-  'LITERIE':                      'Maison',
-  'MEUBLE':                       'Maison',
-  'BAGAGERIE':                    'Mode',
-  'BIJOUX':                       'Mode',
-  'CHAUSSURES':                   'Mode',
-  'VETEMENTS':                    'Mode',
-  'SPORT':                        'Sport',
-  'TELEPHONIE - GPS':             'Tel',
-  'INSTRUMENTS DE MUSIQUE':       'TV Son',
-  'PHOTO':                        'TV Son',
-  'SONO':                         'TV Son',
-  'TV-VIDEO-SON':                 'TV Son',
-  'DVD':                          'TV Son',
-  'MUSIQUE':                      'TV Son',
+  'ADULTE - EROTIQUE':                          'Autres',
+  'AMENAGEMENT URBAIN - VOIRIE':                'Autres',
+  'ANIMALERIE':                                 'Bricolage Jardin Animalerie',
+  'APICULTURE':                                 'Autres',
+  'ARME DE COMBAT - ARME DE SPORT':             'Autres',
+  'ART DE LA TABLE - ARTICLES CULINAIRES':      'Maison',
+  'ARTICLES POUR FUMEUR':                       'Autres',
+  'AUTO - MOTO':                                'Autres',
+  'BAGAGERIE':                                  'Mode',
+  'BATEAU MOTEUR - VOILIER':                    'Autres',
+  'BIJOUX -  LUNETTES - MONTRES':               'Mode',
+  'BRICOLAGE - OUTILLAGE - QUINCAILLERIE':      'Bricolage Jardin Animalerie',
+  'CHAUSSURES - ACCESSOIRES':                   'Mode',
+  'COFFRET CADEAU BOX':                         'Autres',
+  'CONDITIONNEMENT':                            'Autres',
+  'DECO - LINGE - LUMINAIRE':                   'Maison',
+  'DROGUERIE':                                  'Bricolage Jardin Animalerie',
+  'DVD - BLU-RAY':                              'TV Son',
+  'ELECTROMENAGER':                             'PEM',
+  'ELECTRONIQUE':                               'Autres',
+  'EPICERIE SALEE':                             'Autres',
+  'EPICERIE SUCREE':                            'Autres',
+  'FUNERAIRE':                                  'Autres',
+  'HYGIENE - BEAUTE - PARFUM':                  'Beaute',
+  'INFORMATIQUE':                               'Informatique & gaming',
+  'INSTRUMENTS DE MUSIQUE':                     'TV Son',
+  'JARDIN - PISCINE':                           'Bricolage Jardin Animalerie',
+  'JEUX - JOUETS':                              'Bebe - Jouet',
+  'JEUX VIDEO':                                 'Informatique & gaming',
+  'LIBRAIRIE':                                  'Autres',
+  'LITERIE':                                    'Maison',
+  'LOGISTIQUE':                                 'Autres',
+  'LOISIRS CREATIFS - BEAUX ARTS - PAPETERIE':  'Autres',
+  'MANUTENTION':                                'Autres',
+  'MATERIEL DE BUREAU':                         'Autres',
+  'MATERIEL MEDICAL':                           'Beaute',
+  'MERCERIE':                                   'Autres',
+  'MEUBLE':                                     'Maison',
+  'MUSIQUE':                                    'TV Son',
+  'OFFRES PARTENAIRES':                         'Autres',
+  'PARAPHARMACIE':                              'Beaute',
+  'PHOTO - OPTIQUE':                            'TV Son',
+  'POINT DE VENTE - COMMERCE - ADMINISTRATION': 'Autres',
+  'PRODUITS FRAIS':                             'Autres',
+  'PRODUITS SURGELES':                          'Autres',
+  'PUERICULTURE':                               'Bebe - Jouet',
+  'SONO - DJ':                                  'TV Son',
+  'SPORT':                                      'Sport',
+  'TATOUAGE - PIERCING':                        'Autres',
+  'TELEPHONIE - GPS':                           'Tel',
+  'TENUE PROFESSIONNELLE':                      'Autres',
+  'TV - VIDEO - SON':                           'TV Son',
+  'VETEMENTS - LINGERIE':                       'Mode',
+  'VIN - ALCOOL - LIQUIDE':                     'Autres',
 };
 
 const CATEGORIES_ORDER = [
@@ -343,18 +368,25 @@ async function runProcess() {
     const jumiaWb = await readWorkbook(files.jumia);
     const { headers: jH, rows: jumiaRows } = sheetToArrays(jumiaWb);
     log(`Jumia: ${jumiaRows.length.toLocaleString()} lignes`, 'info');
-    // From workflow: C=sku(key=col2), K=prix_jumia(col10), N=Lien(col13)
+    // From workflow: C=sku(key=col2), K=prix_jumia(col10), N=Lien(col13), F=mon_ean(col5)
     const JC = {
       pid:  colIdx(jH,'sku','SKU','ProductId') !== -1 ? colIdx(jH,'sku','SKU','ProductId') : 2,
       px:   colIdx(jH,'prix_jumia','Prix_Jumia') !== -1 ? colIdx(jH,'prix_jumia','Prix_Jumia') : 10,
       lien: colIdx(jH,'Lien_du_produit','lien','link') !== -1 ? colIdx(jH,'Lien_du_produit','lien') : 13,
+      ean:  colIdx(jH,'mon_ean','ean','EAN') !== -1 ? colIdx(jH,'mon_ean','ean','EAN') : 5,
     };
-    const jumiaMap = new Map();
+    const jumiaMap    = new Map();  // by SKU
+    const jumiaEanMap = new Map();  // by EAN (fallback)
     for (const row of jumiaRows) {
       const k = String(row[JC.pid]||'').trim();
       if (k && !jumiaMap.has(k)) jumiaMap.set(k, row);
+      const eanRaw = row[JC.ean];
+      if (eanRaw !== null && eanRaw !== undefined && eanRaw !== '') {
+        const eanKey = typeof eanRaw === 'number' ? String(Math.round(eanRaw)) : String(eanRaw).trim();
+        if (eanKey && !jumiaEanMap.has(eanKey)) jumiaEanMap.set(eanKey, row);
+      }
     }
-    log(`Jumia map: ${jumiaMap.size.toLocaleString()} entrées`);
+    log(`Jumia map: ${jumiaMap.size.toLocaleString()} entrées (EAN: ${jumiaEanMap.size.toLocaleString()})`);
     await yield_();
 
     // ── 6. Build Report Retail rows ───────────────────────────
@@ -402,8 +434,8 @@ async function runProcess() {
       const margePct  = lDat ? lDat.marge        : 0;  // already a decimal (e.g. 0.0922)
       const coutU     = lDat ? lDat.coutU        : 0;
 
-      // Jumia
-      const jRow  = jumiaMap.get(pid);
+      // Jumia — lookup by SKU first, then fallback to normalized GTIN/EAN
+      const jRow  = jumiaMap.get(pid) || jumiaEanMap.get(gtinNorm);
       if (jRow) matchJ++;
       const prixJ = jRow ? parseNum(jRow[JC.px])        : 0;
       const lienJ = jRow ? String(jRow[JC.lien]||'')    : '';
