@@ -62,8 +62,8 @@ const CATEGORIE_MAP = {
 };
 
 const CATEGORIES_ORDER = [
-  'Maison', 'Beaute', 'Bricolage Jardin Animalerie', 'PEM', 'Mode',
-  'Tel', 'Sport', 'Autres', 'TV Son', 'Bebe - Jouet', 'Informatique & gaming'
+  'Maison', 'Beaute', 'PEM', 'Bricolage Jardin Animalerie', 'Mode',
+  'Sport', 'Autres', 'Tel', 'TV Son', 'Bebe - Jouet', 'Informatique & gaming'
 ];
 
 // Vue globale: 6 sections with filter criteria applied to Report Retail sheet
@@ -157,7 +157,7 @@ function readWorkbook(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = e => {
-      try { resolve(XLSX.read(e.target.result, { type: 'array', cellDates: true })); }
+      try { resolve(XLSX.read(e.target.result, { type: 'array', cellDates: false })); }
       catch(err) { reject(err); }
     };
     reader.onerror = reject;
@@ -194,8 +194,10 @@ function mapCategory(n1Raw, rawCat) {
     if (!src) continue;
     const up = String(src).toUpperCase().trim();
     if (CATEGORIE_MAP[up]) return CATEGORIE_MAP[up];
+    // partial match only when source contains the key (not the reverse, to avoid
+    // short strings like "ND" matching inside long keys like "CONDITIONNEMENT")
     for (const [key, val] of Object.entries(CATEGORIE_MAP)) {
-      if (up.includes(key) || key.includes(up)) return val;
+      if (up.includes(key)) return val;
     }
   }
   return 'Autres';
@@ -223,8 +225,9 @@ function normalizeGtin(raw) {
   if (/^[0-9.]+[eE][+\-]?[0-9]+$/.test(s)) {
     return String(Math.round(parseFloat(s)));
   }
-  // Remove trailing .0 or .000
-  return s.replace(/\.0+$/, '');
+  // Remove trailing .0 or .000, then strip leading zeros
+  // (GTINs stored as numbers in Excel lose leading zeros; strip to normalize both sides)
+  return s.replace(/\.0+$/, '').replace(/^0+(\d)/, '$1');
 }
 
 // ── Build Repartition SKU map from template ───────────────────
@@ -237,10 +240,11 @@ async function buildRepSkuMap(templateFile) {
     const { rows } = sheetToArrays(wb, 'Repartition sku 1P');
     const map = new Map();
     for (const row of rows) {
-      const gtin = normalizeGtin(row[0]);
-      const type = String(row[1] || '').trim();
+      const gtin      = normalizeGtin(row[0]);
+      const type      = String(row[1] || '').trim();
+      const ownerCode = String(row[4] || '').trim();
       if (gtin && type) {
-        map.set(gtin, type);
+        map.set(gtin, { type, owner: ownerCode });
       }
     }
     log(`Repartition SKU map: ${map.size} entrées (B1/B2 sourcing)`, 'info');
@@ -342,7 +346,7 @@ async function runProcess() {
       pv:    colIdx(lH,'PV','Views','page_views') !== -1 ? colIdx(lH,'PV','Views','page_views') : 10,
       is_:   colIdx(lH,'IS','is_l3m') !== -1 ? colIdx(lH,'IS','is_l3m') : 20,
       gmv:   colIdx(lH,'GMV','gmv') !== -1 ? colIdx(lH,'GMV','gmv') : 27,
-      marge: colIdx(lH,'marge l3M','Marge L3M','marge_l3m') !== -1 ? colIdx(lH,'marge l3M','Marge L3M','marge_l3m') : 56,
+      marge: colIdx(lH,'marge l3M','Marge L3M','marge_l3m','Marge','marge') !== -1 ? colIdx(lH,'marge l3M','Marge L3M','marge_l3m','Marge','marge') : 56,
       coutU: colIdx(lH,'cout unitaire','Cout unitaire','cout_unitaire') !== -1 ? colIdx(lH,'cout unitaire','Cout unitaire','cout_unitaire') : 57,
     };
     const l3mMap = new Map();
@@ -399,8 +403,9 @@ async function runProcess() {
 
     for (const sRow of stockRows) {
       const pid      = String(sRow[SC.pid]||'').trim();
+      if (!pid) continue; // skip metadata/total rows with no ProductId
       const gtin     = String(sRow[SC.gtin]||'').trim();
-      const rawCat   = String(sRow[SC.cat]||'');
+      const rawCat   = String(sRow[SC.cat]||'') || '(vide)';
       const typeV    = String(sRow[SC.typeV]||'');
       const stockQty = parseNum(sRow[SC.stock]);
       const age      = parseNum(sRow[SC.age]);
@@ -409,11 +414,16 @@ async function runProcess() {
 
       // Sourcing type from Repartition sku 1P (normalize GTIN to avoid float/scientific notation mismatches)
       const gtinNorm = normalizeGtin(sRow[SC.gtin]);
-      const srcType = repSkuMap.get(gtinNorm) || repSkuMap.get(pid) || '';
+      const repEntry  = repSkuMap.get(gtinNorm) || repSkuMap.get(pid);
+      const srcType   = repEntry ? repEntry.type : '';
       if (srcType) matchT++;
 
-      // Owner
-      const owner = srcType === '1P Local B1' ? 'MB' : srcType === '1P Chine' ? 'SA' : '';
+      // Owner: MB for B1, SA for 1P Chine, repSku col 4 code for B2
+      const srcTypeLo = srcType.toLowerCase();
+      const owner = srcTypeLo === '1p local b1'  ? 'MB'
+                  : srcTypeLo === '1p chine'      ? 'SA'
+                  : srcTypeLo === '1p local b2'   ? (repEntry.owner || '')
+                  : '';
 
       // Conso
       const cRow   = consoMap.get(pid);
