@@ -240,9 +240,9 @@ function normalizeType(t) {
 }
 
 // ── Build Repartition SKU map from template ───────────────────
-// Supports two sheet layouts:
-//   Old: col0=GTIN, col1=Type, col4=Owner
-//   New (S12+): col0=SKU, col1=GTIN_octopia, col2=Type, col5=Owner
+// Fully header-driven: finds GTIN and Type by column name,
+// auto-detects Owner column by scanning for known 2-3 letter codes.
+// Survives any future column reordering or additions.
 async function buildRepSkuMap(templateFile) {
   if (!templateFile) return new Map();
   try {
@@ -250,19 +250,42 @@ async function buildRepSkuMap(templateFile) {
     const ws  = wb.Sheets['Repartition sku 1P'];
     if (!ws) { log('Repartition sku 1P sheet not found in template', 'warn'); return new Map(); }
     const { headers: repH, rows } = sheetToArrays(wb, 'Repartition sku 1P');
-    // Detect layout: new layout has GTIN_octopia header in col1
-    const isNewLayout = repH.some(h => String(h).toLowerCase().includes('gtin_octopia') || String(h).toLowerCase().includes('gtin octopia'));
-    const gtinCol  = isNewLayout ? 1 : 0;
-    const typeCol  = isNewLayout ? 2 : 1;
-    const ownerCol = isNewLayout ? 5 : 4;
-    const pidCol   = isNewLayout ? 0 : -1;
+
+    // Find GTIN column by name (many possible header variants)
+    let gtinCol = colIdx(repH, 'GTIN_octopia','GTIN_Octopia','gtin_octopia','gtin','GTIN','EAN','ean','barcode');
+    // Find Type column by name
+    let typeCol = colIdx(repH, 'Type','type','Type vendeur','type_vendeur','sourcing');
+    // Find SKU/ProductId column by name
+    const pidCol = colIdx(repH, 'SKU','ProductId','product_id','sku');
+
+    // Owner column has no header — auto-detect by scanning first 50 rows
+    // for a column whose non-empty values are 2-3 letter codes (HA/HS/YM/YH/MB/SA)
+    const OWNER_RE = /^[A-Z]{2,3}$/;
+    const skipCols = new Set([gtinCol, typeCol, pidCol].filter(c => c >= 0));
+    let ownerCol = -1;
+    const sample = rows.slice(0, 50);
+    for (let ci = 0; ci < repH.length + 2; ci++) {
+      if (skipCols.has(ci)) continue;
+      const hits = sample.filter(r => {
+        const v = String(r[ci] || '').trim();
+        return v && OWNER_RE.test(v);
+      }).length;
+      if (hits > 0) { ownerCol = ci; break; }
+    }
+
+    // Positional fallbacks if header detection fails (old S10 format)
+    if (gtinCol  < 0) gtinCol  = 0;
+    if (typeCol  < 0) typeCol  = 1;
+    if (ownerCol < 0) ownerCol = 4;
+
+    log(`RepSKU colonnes — GTIN:${gtinCol} Type:${typeCol} Owner:${ownerCol} SKU:${pidCol}`, 'info');
+
     const map = new Map();
     for (const row of rows) {
-      const gtinRaw   = row[gtinCol];
       const type      = normalizeType(String(row[typeCol] || '').trim());
       const ownerCode = String(row[ownerCol] || '').trim();
       if (!type) continue;
-      const gtin = normalizeGtin(gtinRaw);
+      const gtin = normalizeGtin(row[gtinCol]);
       if (gtin) map.set(gtin, { type, owner: ownerCode });
       if (pidCol >= 0) {
         const pid = String(row[pidCol] || '').trim();
