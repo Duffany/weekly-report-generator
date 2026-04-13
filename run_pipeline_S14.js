@@ -308,7 +308,22 @@ async function main() {
         if (pid && !repSkuMap.has(pid)) repSkuMap.set(pid, { type, owner: ownerCode });
       }
     }
-    console.log(`RepSKU map: ${repSkuMap.size} entries (layout: ${isNewLayout ? 'new' : 'old'})`);
+    console.log(`RepSKU map: ${repSkuMap.size} entries from Repartition sku 1P (layout: ${isNewLayout ? 'new' : 'old'})`);
+    // Fallback: also read Report Retail from S-1 for products not in repSku
+    try {
+      const { rows: rrRows } = sheetToArrays(tplWb, 'Report Retail');
+      let added = 0;
+      for (const row of rrRows) {
+        const type = normalizeType(String(row[3] || '').trim());
+        if (!type) continue;
+        const owner = String(row[4] || '').trim();
+        const pid   = String(row[5] || '').trim();
+        const gtin  = normalizeGtin(row[6]);
+        if (gtin && !repSkuMap.has(gtin)) { repSkuMap.set(gtin, { type, owner }); added++; }
+        if (pid  && !repSkuMap.has(pid))  { repSkuMap.set(pid,  { type, owner }); added++; }
+      }
+      console.log(`+ ${added} additional entries from Report Retail S-1. Total: ${repSkuMap.size}`);
+    } catch(e2) { console.warn('Report Retail fallback failed:', e2.message); }
   } catch(e) { console.warn('RepSKU load failed:', e.message); }
 
   // Stock

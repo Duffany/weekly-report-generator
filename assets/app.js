@@ -292,7 +292,30 @@ async function buildRepSkuMap(templateFile) {
         if (pid && !map.has(pid)) map.set(pid, { type, owner: ownerCode });
       }
     }
-    log(`Repartition SKU map: ${map.size} entrées (B1/B2 sourcing)`, 'info');
+    log(`Repartition SKU map: ${map.size} entrées depuis Repartition sku 1P`, 'info');
+
+    // ── Fallback: also read Report Retail from S-1 to catch products not in repSku ──
+    // Col D (index 3) = Type, Col E (index 4) = Owner, Col F (index 5) = ProductId, Col G (index 6) = gtin
+    try {
+      const rrWs = wb.Sheets['Report Retail'];
+      if (rrWs) {
+        const { rows: rrRows } = sheetToArrays(wb, 'Report Retail');
+        let added = 0;
+        for (const row of rrRows) {
+          const type = normalizeType(String(row[3] || '').trim());
+          if (!type) continue;
+          const owner = String(row[4] || '').trim();
+          const pid   = String(row[5] || '').trim();
+          const gtin  = normalizeGtin(row[6]);
+          // Only add if not already covered by repSku (repSku has priority)
+          if (gtin && !map.has(gtin)) { map.set(gtin, { type, owner }); added++; }
+          if (pid  && !map.has(pid))  { map.set(pid,  { type, owner }); added++; }
+        }
+        log(`+ ${added} entrées supplémentaires depuis Report Retail S-1`, 'info');
+      }
+    } catch(e2) { /* Report Retail fallback optional — ignore errors */ }
+
+    log(`RepSKU map total: ${map.size} entrées (B1/B2 sourcing)`, 'info');
     return map;
   } catch(e) {
     log('Erreur lecture template: ' + e.message, 'warn');
