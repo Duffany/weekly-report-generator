@@ -287,6 +287,28 @@ function buildReportRetail(ws, retailRows) {
 async function main() {
   console.log('Reading files...');
 
+  // Base Retail type affectation (optional fallback for types not in repSku)
+  const baseRetailMap = new Map();
+  try {
+    const brWb = readWb(path.join(DIR, 'base retail.xlsx'));
+    const brSheet = brWb.SheetNames.find(n => n.trim().toLowerCase() === 'base retail');
+    if (brSheet) {
+      const { headers: brH, rows: brRows } = sheetToArrays(brWb, brSheet);
+      const brGtin = colIdx(brH, 'GTIN_octopia', 'gtin', 'EAN');
+      const brPid  = colIdx(brH, 'productid', 'product_id', 'SKU');
+      const brType = colIdx(brH, 'Type', 'type');
+      for (const row of brRows) {
+        const type = normalizeType(String(row[brType] || '').trim());
+        if (!type) continue;
+        const gtin = normalizeGtin(row[brGtin]);
+        const pid  = String(row[brPid] || '').trim();
+        if (gtin && !baseRetailMap.has(gtin)) baseRetailMap.set(gtin, type);
+        if (pid  && !baseRetailMap.has(pid))  baseRetailMap.set(pid,  type);
+      }
+      console.log(`Base retail map: ${baseRetailMap.size} entries`);
+    }
+  } catch(e) { console.warn('Base retail load failed:', e.message); }
+
   // RepSKU from S13 weekly report (same new layout: col0=SKU, col1=GTIN, col2=Type, col5=Owner)
   const repSkuMap = new Map();
   try {
@@ -431,7 +453,7 @@ async function main() {
     const title=String(sRow[SC.title]||'');
     const gtinNorm=normalizeGtin(sRow[SC.gtin]);
     const repEntry=repSkuMap.get(gtinNorm)||repSkuMap.get(pid);
-    const srcType=repEntry?normalizeType(repEntry.type):'';
+    const srcType=repEntry?normalizeType(repEntry.type):(baseRetailMap.get(gtinNorm)||baseRetailMap.get(pid)||'');
     const srcTypeLo=srcType.toLowerCase();
     const owner=srcTypeLo==='1p local b1'?'MB':srcTypeLo==='1p chine'?'SA':srcTypeLo==='1p local b2'?(repEntry.owner||''):'';
     const cRow=consoMap.get(pid);
@@ -451,7 +473,7 @@ async function main() {
     const coutU=lDat?lDat.coutU:0;
     const jRow=jumiaMap.get(pid)||jumiaEanMap.get(gtinNorm);
     if(jRow) matchJ++;
-    const prixJ=jRow?parseNum(jRow[JC.px]):0;
+    const prixJ=jRow?parseNum(jRow[JC.px]):'';
     const lienJ=jRow?String(jRow[JC.lien]||''):'';
     const catRevue=mapCategory(rawCat,n1);
     retailRows.push({catRevue,rawCat,typeV,srcType,owner,pid,gtin,title,marque,n1,n2,n3,stock:stockQty,age,valeur,pv,is:is_,gmv,margePct,coutU,prixLive,vendeurBO,prixJ,lienJ});
