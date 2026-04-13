@@ -230,21 +230,43 @@ function normalizeGtin(raw) {
   return s.replace(/\.0+$/, '').replace(/^0+(\d)/, '$1');
 }
 
+// ── Normalize Type casing to canonical form ───────────────────
+function normalizeType(t) {
+  const lo = String(t).toLowerCase().trim();
+  if (lo === '1p local b1') return '1P Local B1';
+  if (lo === '1p local b2') return '1P LOCAL B2';
+  if (lo === '1p chine')    return '1P Chine';
+  return t;
+}
+
 // ── Build Repartition SKU map from template ───────────────────
+// Supports two sheet layouts:
+//   Old: col0=GTIN, col1=Type, col4=Owner
+//   New (S12+): col0=SKU, col1=GTIN_octopia, col2=Type, col5=Owner
 async function buildRepSkuMap(templateFile) {
   if (!templateFile) return new Map();
   try {
     const wb  = await readWorkbook(templateFile);
     const ws  = wb.Sheets['Repartition sku 1P'];
     if (!ws) { log('Repartition sku 1P sheet not found in template', 'warn'); return new Map(); }
-    const { rows } = sheetToArrays(wb, 'Repartition sku 1P');
+    const { headers: repH, rows } = sheetToArrays(wb, 'Repartition sku 1P');
+    // Detect layout: new layout has GTIN_octopia header in col1
+    const isNewLayout = repH.some(h => String(h).toLowerCase().includes('gtin_octopia') || String(h).toLowerCase().includes('gtin octopia'));
+    const gtinCol  = isNewLayout ? 1 : 0;
+    const typeCol  = isNewLayout ? 2 : 1;
+    const ownerCol = isNewLayout ? 5 : 4;
+    const pidCol   = isNewLayout ? 0 : -1;
     const map = new Map();
     for (const row of rows) {
-      const gtin      = normalizeGtin(row[0]);
-      const type      = String(row[1] || '').trim();
-      const ownerCode = String(row[4] || '').trim();
-      if (gtin && type) {
-        map.set(gtin, { type, owner: ownerCode });
+      const gtinRaw   = row[gtinCol];
+      const type      = normalizeType(String(row[typeCol] || '').trim());
+      const ownerCode = String(row[ownerCol] || '').trim();
+      if (!type) continue;
+      const gtin = normalizeGtin(gtinRaw);
+      if (gtin) map.set(gtin, { type, owner: ownerCode });
+      if (pidCol >= 0) {
+        const pid = String(row[pidCol] || '').trim();
+        if (pid && !map.has(pid)) map.set(pid, { type, owner: ownerCode });
       }
     }
     log(`Repartition SKU map: ${map.size} entrées (B1/B2 sourcing)`, 'info');
@@ -415,7 +437,7 @@ async function runProcess() {
       // Sourcing type from Repartition sku 1P (normalize GTIN to avoid float/scientific notation mismatches)
       const gtinNorm = normalizeGtin(sRow[SC.gtin]);
       const repEntry  = repSkuMap.get(gtinNorm) || repSkuMap.get(pid);
-      const srcType   = repEntry ? repEntry.type : '';
+      const srcType   = repEntry ? normalizeType(repEntry.type) : '';
       if (srcType) matchT++;
 
       // Owner: MB for B1, SA for 1P Chine, repSku col 4 code for B2
