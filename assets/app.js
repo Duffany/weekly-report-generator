@@ -96,7 +96,8 @@ const S = {
 const YELLOW_COLS = new Set([8, 9, 10, 11, 19, 23, 24, 25, 26, 28, 31, 33, 34]);
 
 // ── State ─────────────────────────────────────────────────────
-const files = { stock: null, conso: null, l3m: null, jumia: null, template: null };
+const files = { stock: null, conso: null, l3m: null, jumia: null, template: null, baseretail: null };
+
 let outputBlob = null;
 let outputFilename = '';
 
@@ -243,6 +244,39 @@ function normalizeType(t) {
 // Fully header-driven: finds GTIN and Type by column name,
 // auto-detects Owner column by scanning for known 2-3 letter codes.
 // Survives any future column reordering or additions.
+async function buildBaseRetailMap(file) {
+  if (!file) return new Map();
+  try {
+    const wb = await readWorkbook(file);
+    // Find sheet named "base retail" (case-insensitive)
+    const sheetName = wb.SheetNames.find(n => n.trim().toLowerCase() === 'base retail');
+    if (!sheetName) { log('Feuille "Base Retail" introuvable dans le fichier uploadé', 'warn'); return new Map(); }
+    const { headers: h, rows } = sheetToArrays(wb, sheetName);
+    const gtinCol = colIdx(h, 'gtin','GTIN','ean','EAN','barcode');
+    const pidCol  = colIdx(h, 'product_id','ProductId','SKU','sku');
+    const typeCol = colIdx(h, 'Type','type','Type vendeur','type_vendeur','sourcing');
+    if (typeCol < 0) { log('Colonne Type introuvable dans Base Retail', 'warn'); return new Map(); }
+    const map = new Map();
+    for (const row of rows) {
+      const type = normalizeType(String(row[typeCol] || '').trim());
+      if (!type) continue;
+      if (gtinCol >= 0) {
+        const gtin = normalizeGtin(row[gtinCol]);
+        if (gtin && !map.has(gtin)) map.set(gtin, type);
+      }
+      if (pidCol >= 0) {
+        const pid = String(row[pidCol] || '').trim();
+        if (pid && !map.has(pid)) map.set(pid, type);
+      }
+    }
+    log(`Base Retail map: ${map.size} entrées (type affectation)`, 'info');
+    return map;
+  } catch(e) {
+    log('Erreur lecture Base Retail: ' + e.message, 'warn');
+    return new Map();
+  }
+}
+
 async function buildRepSkuMap(templateFile) {
   if (!templateFile) return new Map();
   try {
@@ -344,6 +378,9 @@ async function runProcess() {
     const repSkuMap = await buildRepSkuMap(files.template);
     const hasRepSku = repSkuMap.size > 0;
     if (!hasRepSku) log('Sans fichier modèle: B1/B2 indisponibles, seuls les totaux seront calculés.', 'warn');
+
+    // ── 1b. Base Retail → Type affectation (fallback pour types manquants) ──
+    const baseRetailMap = await buildBaseRetailMap(files.baseretail);
 
     // ── 2. Stock ───────────────────────────────────────────────
     setProgress(8, 'Lecture Stock…');
@@ -480,10 +517,12 @@ async function runProcess() {
       const valeur   = parseNum(sRow[SC.val]);
       const title    = String(sRow[SC.title]||'');
 
-      // Sourcing type from Repartition sku 1P (normalize GTIN to avoid float/scientific notation mismatches)
+      // Sourcing type: repSkuMap first (has owner too), fallback to baseRetailMap
       const gtinNorm = normalizeGtin(sRow[SC.gtin]);
       const repEntry  = repSkuMap.get(gtinNorm) || repSkuMap.get(pid);
-      const srcType   = repEntry ? normalizeType(repEntry.type) : '';
+      const srcType   = repEntry
+        ? normalizeType(repEntry.type)
+        : (baseRetailMap.get(gtinNorm) || baseRetailMap.get(pid) || '');
       if (srcType) matchT++;
 
       // Owner: MB for B1, SA for 1P Chine, repSku col 4 code for B2
@@ -515,7 +554,7 @@ async function runProcess() {
       // Jumia — lookup by SKU first, then fallback to normalized GTIN/EAN
       const jRow  = jumiaMap.get(pid) || jumiaEanMap.get(gtinNorm);
       if (jRow) matchJ++;
-      const prixJ = jRow ? parseNum(jRow[JC.px])        : 0;
+      const prixJ = jRow ? parseNum(jRow[JC.px])        : '';
       const lienJ = jRow ? String(jRow[JC.lien]||'')    : '';
 
       // Category — use Stock nom_categorie first (proven correct by Python),
