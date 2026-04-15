@@ -185,7 +185,7 @@ function sheetToArrays(wb, sheetName) {
     // No name — take first sheet by value directly (avoids SheetNames/Sheets key mismatch)
     ws = Object.values(wb.Sheets).find(s => s && s['!ref']);
   }
-  if (!ws) throw new Error(`Feuille "${sheetName || wb.SheetNames[0]}" introuvable. SheetNames=${JSON.stringify(wb.SheetNames)} Sheets_keys=${JSON.stringify(Object.keys(wb.Sheets||{}))}`);
+  if (!ws) throw new Error(`Feuille "${sheetName || wb.SheetNames[0]}" introuvable.`);
   const all = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
   return { headers: all[0] || [], rows: all.slice(1) };
 }
