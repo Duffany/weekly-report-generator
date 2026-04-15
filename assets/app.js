@@ -166,9 +166,19 @@ function readWorkbook(file) {
   });
 }
 function sheetToArrays(wb, sheetName) {
-  const name = sheetName || wb.SheetNames[0];
-  const ws   = wb.Sheets[name];
-  if (!ws) throw new Error(`Feuille "${name}" introuvable.`);
+  let ws, resolvedName;
+  if (sheetName) {
+    // 1. exact match, 2. case-insensitive match, 3. prefix match (handles date suffixes like "Extract Full catalogue_2026-04-")
+    resolvedName = wb.SheetNames.find(n => n === sheetName)
+                || wb.SheetNames.find(n => n.trim().toLowerCase() === sheetName.trim().toLowerCase())
+                || wb.SheetNames.find(n => n.trim().toLowerCase().startsWith(sheetName.trim().toLowerCase()));
+    ws = wb.Sheets[resolvedName];
+  } else {
+    // No name requested — use first sheet directly by key to avoid any encoding mismatch
+    resolvedName = wb.SheetNames[0];
+    ws = wb.Sheets[resolvedName];
+  }
+  if (!ws) throw new Error(`Feuille "${sheetName || wb.SheetNames[0]}" introuvable.`);
   const all = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
   return { headers: all[0] || [], rows: all.slice(1) };
 }
