@@ -159,7 +159,7 @@ function readWorkbook(file) {
     const reader = new FileReader();
     reader.onload = e => {
       try {
-        const wb = XLSX.read(e.target.result, { type: 'binary', cellDates: false });
+        const wb = XLSX.read(e.target.result, { type: 'binary', cellDates: false, cellFormula: false, cellHTML: false, cellNF: false, dense: true });
         resolve(wb);
       }
       catch(err) { reject(err); }
@@ -184,7 +184,7 @@ function sheetToArrays(wb, sheetName) {
     ws = Object.values(wb.Sheets).find(s => s && s['!ref']);
   }
   if (!ws) throw new Error(`Feuille "${sheetName || wb.SheetNames[0]}" introuvable.`);
-  const all = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  const all = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', dense: true });
   return { headers: all[0] || [], rows: all.slice(1) };
 }
 function colIdx(headers, ...candidates) {
