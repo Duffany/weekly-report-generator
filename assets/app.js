@@ -166,17 +166,19 @@ function readWorkbook(file) {
   });
 }
 function sheetToArrays(wb, sheetName) {
-  let ws, resolvedName;
+  let ws;
   if (sheetName) {
-    // 1. exact match, 2. case-insensitive match, 3. prefix match (handles date suffixes like "Extract Full catalogue_2026-04-")
-    resolvedName = wb.SheetNames.find(n => n === sheetName)
-                || wb.SheetNames.find(n => n.trim().toLowerCase() === sheetName.trim().toLowerCase())
-                || wb.SheetNames.find(n => n.trim().toLowerCase().startsWith(sheetName.trim().toLowerCase()));
-    ws = wb.Sheets[resolvedName];
+    // Try by key directly, then case-insensitive, then prefix (handles date suffixes)
+    ws = wb.Sheets[sheetName];
+    if (!ws) {
+      const lo = sheetName.trim().toLowerCase();
+      const match = Object.keys(wb.Sheets).find(k => k.trim().toLowerCase() === lo)
+                 || Object.keys(wb.Sheets).find(k => k.trim().toLowerCase().startsWith(lo));
+      if (match) ws = wb.Sheets[match];
+    }
   } else {
-    // No name requested — use first sheet directly by key to avoid any encoding mismatch
-    resolvedName = wb.SheetNames[0];
-    ws = wb.Sheets[resolvedName];
+    // No name — take first sheet by value directly (avoids SheetNames/Sheets key mismatch)
+    ws = Object.values(wb.Sheets).find(s => s && s['!ref']);
   }
   if (!ws) throw new Error(`Feuille "${sheetName || wb.SheetNames[0]}" introuvable.`);
   const all = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
