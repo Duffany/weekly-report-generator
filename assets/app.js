@@ -158,7 +158,12 @@ function readWorkbook(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = e => {
-      try { resolve(XLSX.read(e.target.result, { type: 'array', cellDates: false })); }
+      try {
+        // Use Uint8Array — fixes Strict Open XML files where ArrayBuffer yields empty Sheets
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array', cellDates: false });
+        resolve(wb);
+      }
       catch(err) { reject(err); }
     };
     reader.onerror = reject;
