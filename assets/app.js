@@ -1,7 +1,9 @@
 /* ============================================================
    Weekly Report Generator — Marjane Mall
    SheetJS (reading) + ExcelJS (formatted output + live formulas)
+   v4 — owner fix
    ============================================================ */
+console.log('[APP] version v4 loaded');
 
 // ── Category mapping (exact copy of "Categorie revue" sheet) ─
 const CATEGORIE_MAP = {
@@ -544,7 +546,7 @@ async function runProcess() {
       const srcTypeLo = srcType.toLowerCase();
       const owner = srcTypeLo === '1p local b1'  ? 'MB'
                   : srcTypeLo === '1p chine'      ? 'SA'
-                  : srcTypeLo === '1p local b2'   ? (repEntry.owner || '')
+                  : srcTypeLo === '1p local b2'   ? ((repEntry && repEntry.owner) || '')
                   : '';
 
       // Conso
