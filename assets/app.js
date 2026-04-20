@@ -544,10 +544,16 @@ async function runProcess() {
 
       // Owner: MB for B1, SA for 1P Chine, repSku col 4 code for B2
       const srcTypeLo = srcType.toLowerCase();
-      const owner = srcTypeLo === '1p local b1'  ? 'MB'
-                  : srcTypeLo === '1p chine'      ? 'SA'
-                  : srcTypeLo === '1p local b2'   ? ((repEntry && repEntry.owner) || '')
-                  : '';
+      let owner = '';
+      try {
+        owner = srcTypeLo === '1p local b1'  ? 'MB'
+              : srcTypeLo === '1p chine'      ? 'SA'
+              : srcTypeLo === '1p local b2'   ? ((repEntry && repEntry.owner) || '')
+              : '';
+      } catch(ownerErr) {
+        log(`OWNER CRASH — pid:${pid} srcType:"${srcType}" repEntry type:${typeof repEntry} val:${JSON.stringify(repEntry)}`, 'warn');
+        owner = '';
+      }
 
       // Conso
       const cRow   = consoMap.get(pid);
